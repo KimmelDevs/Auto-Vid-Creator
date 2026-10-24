@@ -1,0 +1,6 @@
+node_modules/
+public/jobs/
+out/
+*.mp4
+.cache/
+__pycache__/
