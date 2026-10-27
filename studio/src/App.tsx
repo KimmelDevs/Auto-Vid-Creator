@@ -895,6 +895,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   const [obj, setObj] = useState(0);  // 0 = whole image
   const [line1, setLine1] = useState('');
   const [line2, setLine2] = useState('');
+  const [badge, setBadge] = useState(`Part ${n}`);
   const cv = useRef<HTMLCanvasElement>(null);
   const [rows, cols] = proj.config.grid || [2, 3];
   useEffect(() => {
@@ -930,17 +931,21 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
       };
       text(line1, 120, 84, '#fff');
       text(line2, 670, 84, '#ffd23f');
-      g.fillStyle = '#d6402f';
-      g.beginPath();
-      (g as any).roundRect?.(1040, 24, 216, 74, 14);
-      g.fill();
-      g.fillStyle = '#fff';
-      g.font = '900 46px "Segoe UI", Arial, sans-serif';
-      g.textAlign = 'center';
-      g.fillText(`PART ${n}`, 1148, 78);
+      if (badge.trim()) {
+        // red badge top-right, as wide as its text
+        g.font = '900 46px "Segoe UI", Arial, sans-serif';
+        const w = g.measureText(badge.toUpperCase()).width + 48;
+        g.fillStyle = '#d6402f';
+        g.beginPath();
+        (g as any).roundRect?.(1256 - w, 24, w, 74, 14);
+        g.fill();
+        g.fillStyle = '#fff';
+        g.textAlign = 'center';
+        g.fillText(badge.toUpperCase(), 1256 - w / 2, 78);
+      }
     };
     im.src = src;
-  }, [img, obj, line1, line2, proj.images, n, rows, cols]);
+  }, [img, obj, line1, line2, badge, proj.images, rows, cols]);
   const download = () => {
     const a = document.createElement('a');
     a.href = cv.current!.toDataURL('image/png');
@@ -978,6 +983,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
         </div>
         <input placeholder="Top text (e.g. DIED IN A FLOOD…)" value={line1} onChange={(e) => setLine1(e.target.value)} style={{width: '100%', marginBottom: 6}} />
         <input placeholder="Bottom text (e.g. WOKE UP IN PANGAEA)" value={line2} onChange={(e) => setLine2(e.target.value)} style={{width: '100%', marginBottom: 6}} />
+        <input placeholder="Badge (top right), empty = no badge" value={badge} onChange={(e) => setBadge(e.target.value)} style={{width: '100%', marginBottom: 6}} />
         <canvas ref={cv} width={1280} height={720} style={{width: '100%', border: '1px solid var(--line)', borderRadius: 6}} />
         <button className="primary" onClick={download} disabled={!proj.images.length}>Download thumbnail</button>
       </div>
