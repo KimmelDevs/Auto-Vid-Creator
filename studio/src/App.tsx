@@ -730,6 +730,11 @@ const Play: React.FC<{proj: Project; reload: () => void; say: (m: string) => voi
           <button className={mode === 'focus' ? 'on' : ''} onClick={() => pickMode('focus')}>One object at a time (cropped, centred)</button>
         </div>
       </div>
+      {busy && (
+        <div className="row">
+          <button onClick={() => cancel(proj.id, say, poll)}>✖ Cancel {st.kind === 'build' ? 'build' : st.kind === 'short' ? 'Short' : 'video'}</button>
+        </div>
+      )}
       {busy && <pre className="log">{st.log.split('\n').slice(-6).join('\n')}</pre>}
       {st.state === 'error' && <pre className="log err">{st.log}</pre>}
       {job ? (
@@ -792,7 +797,10 @@ const Render: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
           <div className="bar">
             <div style={{width: `${st.progress}%`}} />
           </div>
-          <div className="muted">{label(st.kind)}: {st.progress}%</div>
+          <div className="row">
+            <span className="muted">{label(st.kind)}: {st.progress}%</span>
+            <button className="small" onClick={() => cancel(proj.id, say, poll)}>✖ Cancel</button>
+          </div>
         </>
       )}
       {(q.running.length > 0 || q.waiting.length > 0) && (
@@ -825,6 +833,13 @@ const Render: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
       </div>
     </div>
   );
+};
+
+const cancel = async (id: string, say: (m: string) => void, poll: () => void) => {
+  if (!confirm('Stop it? Progress so far is thrown away.')) return;
+  await api(`/api/projects/${id}/cancel`, {body: {}});
+  say('Cancelled');
+  setTimeout(poll, 1500);
 };
 
 // ---------- timeline under the preview: images, objects, effects, sounds; click to jump ----------

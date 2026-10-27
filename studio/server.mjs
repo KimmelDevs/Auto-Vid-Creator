@@ -139,9 +139,10 @@ function nextInQueue() {
     nextInQueue();
   }
 }
+const procs = {};  // id -> running child process, so a job can be cancelled
 function run(id, kind, args) {
   const j = (jobs[id] = {kind, state: 'running', log: '', progress: 0, started: Date.now()});
-  const p = spawn('python', ['autovid/autovid.py', ...args], {cwd: ROOT, env: {...process.env, PYTHONUTF8: '1'}, shell: false});
+  const p = (procs[id] = spawn('python', ['autovid/autovid.py', ...args], {cwd: ROOT, env: {...process.env, PYTHONUTF8: '1'}, shell: false}));
   const take = (b) => {
     const s = b.toString();
     j.log = (j.log + s).slice(-6000);
@@ -151,6 +152,14 @@ function run(id, kind, args) {
   p.stdout.on('data', take);
   p.stderr.on('data', take);
   p.on('close', (code) => {
+    delete procs[id];
+    if (j.cancelled) {
+      j.state = 'cancelled';
+      const tmp = path.join(OUT, `tmp_${videoName(id, kind)}`);
+      if (kind !== 'build' && fs.existsSync(tmp)) fs.rmSync(tmp, {force: true});
+      if (kind !== 'build') nextInQueue();
+      return;
+    }
     j.state = code === 0 ? 'done' : 'error';
     j.progress = code === 0 ? 100 : j.progress;
     if (kind !== 'build' && code === 0) {
@@ -283,6 +292,16 @@ app.post('/api/projects/:id/render', wrap((req) => {
   queue.push({id, kind});
   nextInQueue();
   return {queued: !(jobs[id]?.state === 'running'), position: queue.findIndex((q) => q.id === id && q.kind === kind) + 1};
+}));
+
+// stop a running build / render / short (the whole process tree: python -> npx -> remotion -> chrome)
+app.post('/api/projects/:id/cancel', wrap((req) => {
+  const id = slug(req.params.id);
+  const p = procs[id];
+  if (!p || jobs[id]?.state !== 'running') return {ok: false};
+  jobs[id].cancelled = true;
+  spawn('taskkill', ['/pid', String(p.pid), '/T', '/F'], {shell: false});
+  return {ok: true};
 }));
 
 app.get('/api/queue', wrap(() => ({
