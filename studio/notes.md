@@ -7,6 +7,41 @@
 4. 3. Play: press Build preview, then watch it.
 5. 4. Make video: press Make the final video. It lands in out/studio.
 
+## DeepSeek: make a tagged SRT from a story
+1. Attach the sound list: C:\Users\Admin\OneDrive\Desktop\DCODE\Story Maker\sfx\SOUND_LIST.txt
+   (all 2,218 sound paths; if it's missing or old, ask Claude to remake it)
+2. Paste the prompt below, then your story under "MY STORY:".
+3. Paste DeepSeek's SRT into 1. Script and Save. Copy its 60-object list into your image prompts.
+4. Any sound DeepSeek invented shows "! sound not found" in the build log; replace it with + sound under that object.
+
+
+Turn my story below into a narrated explainer video script in SRT format for my video tool. Narration is second person ("you"), dark and gripping, about 5 minutes (about 900 words).
+
+SRT RULES:
+- Normal SRT: number, time line (00:00:00,000 --> 00:00:04,500), text, blank line.
+- Each subtitle is 1-2 short lines, about 3 to 6 seconds. Time it at about 3 words per second, with no gaps and no overlaps.
+- Use plain straight quotes. No emojis, no stage directions, no speaker names.
+
+PICTURE TAGS (most important):
+- The video has 10 images. Each image is a grid of 6 objects: [n.1] [n.2] [n.3] on top, [n.4] [n.5] [n.6] below.
+- Put a tag like [1.1] right before the word where that drawing should appear. Use all 60 tags in order: [1.1] to [1.6], then [2.1] to [2.6], up to [10.6]. Spread them evenly, about one every 5 seconds.
+
+EFFECT TAGS (optional, put right before the word they hit):
+[shake] [shake:big] [boom] [flash] [flash:red] [knock:3] [zoom] [heartbeat:3] [red:3] [glitch] [rewind] [fade] [dark] [light] [whole] [pause:1] [label: Day 2]
+- Every [dark] needs a [light] later. Use [boom] or [shake] for hits, [flash] for gunshots or lightning, [rewind] for flashbacks, [label: ...] for time jumps.
+
+SOUND TAGS (optional, only use file paths that appear exactly in the attached SOUND_LIST.txt, never invent one):
+[sfx:fight/sword_slash.mp3 vol=40] plays once at that word.
+[sfx:human/heartbeat_single.mp3 vol=45 x3] plays 3 times.
+[amb:ambience/scary_woods_at_night.mp3 vol=15 loop fade-in] background loop that keeps playing.
+[amb-stop:scary_woods_at_night] stops that loop (file name only, no folder, no .mp3).
+- Volumes: background loops 10-20, normal sounds 30-45, big hits and roars 50-65.
+- About one sound every 1-2 subtitles. At most 2 background loops at once, and stop each loop when the scene changes.
+
+AFTER THE SRT, list the 60 objects in order (1.1 to 10.6), one short line each describing what to draw for that moment, so I can make the images.
+
+MY STORY:
+
 ## DeepSeek: rewrite an image prompt into the series style
 Rewrite my image prompt below into this exact style. Keep my scene and objects, only change the style rules and format.
 

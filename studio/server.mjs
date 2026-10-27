@@ -99,7 +99,21 @@ function applyEffects(text, effects) {
   });
 }
 
+// every save keeps the previous script in <project>/.history (last 50), so a bad save can be undone
+const historyDir = (d) => path.join(d, '.history');
+function backupScript(d) {
+  const old = readSource(d);
+  if (!old.trim()) return;
+  const dir = historyDir(d);
+  fs.mkdirSync(dir, {recursive: true});
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.txt')).sort();
+  if (files.length && fs.readFileSync(path.join(dir, files.at(-1)), 'utf8') === old) return;
+  fs.writeFileSync(path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.txt`), old);
+  for (const f of files.slice(0, Math.max(0, files.length + 1 - 50))) fs.unlinkSync(path.join(dir, f));
+}
+
 function writeScript(d, text) {
+  backupScript(d);
   fs.writeFileSync(sourceFile(d), text);
   const name = srtFile(d) || `${path.basename(d)}.srt`;
   for (const f of fs.readdirSync(d)) if (f.toLowerCase().endsWith('.srt') && f !== name) fs.renameSync(path.join(d, f), path.join(d, f + '.old'));
@@ -192,6 +206,14 @@ app.get('/api/projects/:id', wrap((req) => {
 app.put('/api/projects/:id/script', wrap((req) => {
   writeScript(dirOf(req.params.id), String(req.body.text || '').replace(/\r/g, ''));
   return {ok: true};
+}));
+
+app.get('/api/projects/:id/history', wrap((req) => {
+  const dir = historyDir(dirOf(req.params.id));
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((f) => f.endsWith('.txt')).sort().reverse().map((f) => ({
+    name: f, time: fs.statSync(path.join(dir, f)).mtimeMs, text: fs.readFileSync(path.join(dir, f), 'utf8'),
+  }));
 }));
 
 app.put('/api/projects/:id/effects', wrap((req) => {

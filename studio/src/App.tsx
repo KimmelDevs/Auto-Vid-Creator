@@ -181,13 +181,62 @@ export const App: React.FC = () => {
 // ---------- 1. script ----------
 const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => void}> = ({proj, reload, say}) => {
   const [text, setText] = useState(proj.script);
-  useEffect(() => setText(proj.script), [proj.script]);
+  // undo/redo: past and future snapshots; typing within 700 ms counts as one step
+  const hist = useRef<{past: string[]; future: string[]; last: number}>({past: [], future: [], last: 0});
+  const [, bump] = useState(0);
+  const [versions, setVersions] = useState<{name: string; time: number; text: string}[]>([]);
+  const loadVersions = useCallback(() => api(`/api/projects/${proj.id}/history`).then(setVersions).catch(() => setVersions([])), [proj.id]);
+  useEffect(() => void loadVersions(), [loadVersions]);
+  useEffect(() => setText((cur) => (cur === proj.script ? cur : proj.script)), [proj.script]);
+  useEffect(() => {
+    hist.current = {past: [], future: [], last: 0};
+    bump((n) => n + 1);
+  }, [proj.id]);
+  const edit = (t: string, group = true) => {
+    const h = hist.current;
+    const now = Date.now();
+    if (t === text) return;
+    if (!group || now - h.last > 700 || !h.past.length) h.past.push(text);
+    if (h.past.length > 200) h.past.shift();
+    h.future = [];
+    h.last = group ? now : 0;
+    setText(t);
+    bump((n) => n + 1);
+  };
+  const undo = () => {
+    const h = hist.current;
+    if (!h.past.length) return;
+    h.future.push(text);
+    h.last = 0;
+    setText(h.past.pop()!);
+    bump((n) => n + 1);
+  };
+  const redo = () => {
+    const h = hist.current;
+    if (!h.future.length) return;
+    h.past.push(text);
+    h.last = 0;
+    setText(h.future.pop()!);
+    bump((n) => n + 1);
+  };
+  const keys = (e: React.KeyboardEvent) => {
+    const k = e.key.toLowerCase();
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (k === 'z' && !e.shiftKey) (e.preventDefault(), undo());
+    else if (k === 'y' || (k === 'z' && e.shiftKey)) (e.preventDefault(), redo());
+    else if (k === 's') (e.preventDefault(), save());
+  };
   const save = async (t = text) => {
     await api(`/api/projects/${proj.id}/script`, {method: 'PUT', body: {text: t}});
     say('Script saved');
     reload();
+    loadVersions();
   };
-  const upload = (f?: File) => f && f.text().then((t) => (setText(t), save(t)));
+  const upload = (f?: File) => f && f.text().then((t) => (edit(t, false), save(t)));
+  const restore = (name: string) => {
+    const v = versions.find((x) => x.name === name);
+    if (v) (edit(v.text, false), say('Older save loaded. Press Save script to keep it, or Undo to go back.'));
+  };
   const cues = (text.match(/-->/g) || []).length;
   const objs = (text.match(/\[\d+[.-]\d+\]/g) || []).length;
   return (
@@ -198,10 +247,18 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
             Upload .srt file
             <input type="file" accept=".srt,.txt" hidden onChange={(e) => upload(e.target.files?.[0])} />
           </label>
-          <button className="primary" onClick={() => save()} disabled={text === proj.script}>Save script</button>
+          <button onClick={undo} disabled={!hist.current.past.length} title="Ctrl+Z">↶ Undo</button>
+          <button onClick={redo} disabled={!hist.current.future.length} title="Ctrl+Y">↷ Redo</button>
+          <button className="primary" onClick={() => save()} disabled={text === proj.script} title="Ctrl+S">Save script</button>
+          <select value="" onChange={(e) => restore(e.target.value)} disabled={!versions.length}>
+            <option value="">{versions.length ? `Older saves (${versions.length})` : 'No older saves yet'}</option>
+            {versions.map((v) => (
+              <option key={v.name} value={v.name}>{new Date(v.time).toLocaleString()}</option>
+            ))}
+          </select>
           <span className="muted">{cues} subtitle lines · {objs} picture tags</span>
         </div>
-        <textarea className="script" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} placeholder="Paste or upload your SRT here" />
+        <textarea className="script" value={text} onChange={(e) => edit(e.target.value)} onKeyDown={keys} spellCheck={false} placeholder="Paste or upload your SRT here" />
       </div>
       <div className="help">
         <h3>How the script works</h3>
@@ -214,6 +271,9 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
         <pre>{'n.1  n.2  n.3\nn.4  n.5  n.6'}</pre>
         <p>
           You can also type effects like <code>[shake]</code> here, but it is easier to pick them in <b>2. Images &amp; Effects</b>.
+        </p>
+        <p>
+          Made a mistake? <b>Ctrl+Z</b> undoes, <b>Ctrl+Y</b> redoes, <b>Ctrl+S</b> saves. Every save also keeps the old script, so you can bring it back from <b>Older saves</b>.
         </p>
       </div>
     </div>

@@ -7,3 +7,4 @@ __pycache__/
 studio/dev.log
 *.bak.py
 sfx/**/*.mp3
+.history/

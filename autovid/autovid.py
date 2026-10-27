@@ -192,6 +192,8 @@ def mix_sounds(wav, out, sounds, end, sfx_dir, cache):
             at = t + r * (d + 0.1)
             if s['loop']:
                 later = [x for x in stops.get(f.stem.lower(), []) if x > at]
+                if not later:
+                    print(f'  ! loop {f.stem} at {at:.0f}s has no [amb-stop:{f.stem}] after it, so it plays to the end')
                 length = (min(later) if later else end) - at
                 fi, fo = 1.5, 1.5
             else:
