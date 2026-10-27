@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Player} from '@remotion/player';
-import {Auto, Job} from '../../src/Auto';
+import {Player, PlayerRef} from '@remotion/player';
+import {Auto, Job, totalFrames} from '../../src/Auto';
 
 // ---------- api ----------
 const api = async (url: string, opts: {method?: string; body?: any; form?: FormData} = {}) => {
@@ -15,7 +15,8 @@ const api = async (url: string, opts: {method?: string; body?: any; form?: FormD
 };
 
 type Obj = {key: string; n: number; k: number; fx: string[]; text: string};
-type Project = {id: string; script: string; objects: Obj[]; images: {n: number; url: string}[]; config: any; hasPreview: boolean; video: string | null};
+type Project = {id: string; script: string; objects: Obj[]; images: {n: number; url: string}[]; config: any; hasPreview: boolean; video: string | null; short: string | null};
+type Problem = {level: 'error' | 'warn' | 'info' | 'ok'; msg: string; line?: number};
 
 // every effect autovid understands, in plain words
 const EFFECTS: {v: string; label: string}[] = [
@@ -77,6 +78,7 @@ const TABS = [
   ['images', '2. Images & Effects'],
   ['play', '3. Play'],
   ['render', '4. Make video'],
+  ['youtube', 'YouTube'],
   ['settings', 'Settings'],
 ] as const;
 
@@ -155,6 +157,21 @@ export const App: React.FC = () => {
           <>
             <header>
               <h2>{proj.id}</h2>
+              <button className="small" title="Make the next part with the same settings" onClick={async () => {
+                const m = proj.id.match(/^(.*?)(\d+)$/);
+                const guess = m ? `${m[1]}${String(Number(m[2]) + 1).padStart(m[2].length, '0')}` : `${proj.id}_2`;
+                const name = prompt('Name for the copy (same settings, music, end card):', guess);
+                if (!name) return;
+                const script = confirm('Also copy the script? (OK = yes, Cancel = start with an empty script)');
+                try {
+                  const {id} = await api(`/api/projects/${proj.id}/duplicate`, {body: {name, script}});
+                  await loadList();
+                  setCurrent(id);
+                  say(`Made ${id}`);
+                } catch (e: any) {
+                  say(e.message);
+                }
+              }}>Duplicate</button>
               <nav>
                 {TABS.map(([k, l]) => (
                   <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
@@ -168,6 +185,7 @@ export const App: React.FC = () => {
               {tab === 'images' && <Images proj={proj} reload={loadProj} say={say} goScript={() => setTab('script')} />}
               {tab === 'play' && <Play proj={proj} reload={loadProj} say={say} />}
               {tab === 'render' && <Render proj={proj} reload={() => (loadProj(), loadList())} say={say} />}
+              {tab === 'youtube' && <YouTube proj={proj} reload={loadProj} say={say} />}
               {tab === 'settings' && <Settings proj={proj} reload={loadProj} say={say} />}
             </section>
           </>
@@ -239,6 +257,25 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
   };
   const cues = (text.match(/-->/g) || []).length;
   const objs = (text.match(/\[\d+[.-]\d+\]/g) || []).length;
+  const [problems, setProblems] = useState<Problem[] | null>(null);
+  const check = async () => {
+    if (text !== proj.script) await save();
+    setProblems(await api(`/api/projects/${proj.id}/check`));
+  };
+  const suggest = async () => {
+    const r = await api(`/api/projects/${proj.id}/suggest-sounds`, {body: {text}});
+    if (!r.added) return say('No new sound spots found.');
+    edit(r.text, false);
+    say(`Added ${r.added} sounds. Look them over, then Save (Undo removes them all).`);
+  };
+  const ta = useRef<HTMLTextAreaElement>(null);
+  const goLine = (line?: number) => {
+    if (!line || !ta.current) return;
+    const at = text.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0);
+    ta.current.focus();
+    ta.current.setSelectionRange(at, at + (text.split('\n')[line - 1] || '').length);
+    ta.current.scrollTop = Math.max(0, (line - 5) * 19.5);
+  };
   return (
     <div className="cols">
       <div className="grow">
@@ -256,9 +293,21 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
               <option key={v.name} value={v.name}>{new Date(v.time).toLocaleString()}</option>
             ))}
           </select>
+          <button onClick={check} title="Find problems before building">Check script</button>
+          <button onClick={suggest} title="Add sounds before words like roar, scream, door, rain">Suggest sounds</button>
           <span className="muted">{cues} subtitle lines · {objs} picture tags</span>
         </div>
-        <textarea className="script" value={text} onChange={(e) => edit(e.target.value)} onKeyDown={keys} spellCheck={false} placeholder="Paste or upload your SRT here" />
+        {problems && (
+          <div className="problems">
+            {problems.map((p, i) => (
+              <div key={i} className={'prob ' + p.level} onClick={() => goLine(p.line)}>
+                <b>{{error: '✖', warn: '⚠', info: 'ℹ', ok: '✔'}[p.level]}</b> {p.msg} {p.line ? <span className="muted">line {p.line}</span> : null}
+              </div>
+            ))}
+            <button className="small ghost" onClick={() => setProblems(null)}>Hide</button>
+          </div>
+        )}
+        <textarea ref={ta} className="script" value={text} onChange={(e) => edit(e.target.value)} onKeyDown={keys} spellCheck={false} placeholder="Paste or upload your SRT here" />
       </div>
       <div className="help">
         <h3>How the script works</h3>
@@ -590,6 +639,7 @@ const Play: React.FC<{proj: Project; reload: () => void; say: (m: string) => voi
   }, [st, loadJob, reload, say]);
   const build = async () => {
     try {
+      resumeAt.current = player.current?.getCurrentFrame() ?? resumeAt.current;
       await api(`/api/projects/${proj.id}/build`, {body: {}});
       poll();
     } catch (e: any) {
@@ -597,7 +647,18 @@ const Play: React.FC<{proj: Project; reload: () => void; say: (m: string) => voi
     }
   };
   const busy = st.state === 'running';
-  const frames = job ? Math.ceil((job.end + (job.endCard ? 5 : 0)) * 30) : 1;
+  const frames = job ? totalFrames(job) : 1;
+  const player = useRef<PlayerRef>(null);
+  const [frame, setFrame] = useState(0);
+  // after a rebuild, carry on from the same spot
+  const resumeAt = useRef(Number(new URLSearchParams(location.search).get('t') || 0) * 30);
+  useEffect(() => {
+    const pl = player.current;
+    if (!pl) return;
+    const on = (e: any) => setFrame(e.detail.frame);
+    pl.addEventListener('frameupdate', on);
+    return () => pl.removeEventListener('frameupdate', on);
+  }, [stamp]);
   // the look switches live in the preview and is saved for the final video
   const [mode, setMode] = useState<string>(proj.config.mode || 'storyboard');
   const pickMode = (m: string) => {
@@ -625,8 +686,9 @@ const Play: React.FC<{proj: Project; reload: () => void; say: (m: string) => voi
       {st.state === 'error' && <pre className="log err">{st.log}</pre>}
       {job ? (
         <div className="player">
-          <Player key={stamp} component={Auto} inputProps={{job: {...job, mode: mode as Job['mode']}}} durationInFrames={frames} fps={30} compositionWidth={1920} compositionHeight={1080} controls style={{width: '100%'}}
-            initialFrame={Math.min(frames - 1, Number(new URLSearchParams(location.search).get('t') || 0) * 30)} />
+          <Player ref={player} key={stamp} component={Auto} inputProps={{job: {...job, mode: mode as Job['mode']}}} durationInFrames={frames} fps={30} compositionWidth={1920} compositionHeight={1080} controls style={{width: '100%'}}
+            initialFrame={Math.min(frames - 1, Math.max(0, Math.round(resumeAt.current)))} />
+          <Timeline job={job} frame={frame} frames={frames} seek={(f) => player.current?.seekTo(f)} />
         </div>
       ) : (
         !busy && <div className="note">No preview yet. Press "Build preview".</div>
@@ -639,46 +701,238 @@ const Play: React.FC<{proj: Project; reload: () => void; say: (m: string) => voi
 const Render: React.FC<{proj: Project; reload: () => void; say: (m: string) => void}> = ({proj, reload, say}) => {
   const [st, poll] = useJob(proj.id);
   const prev = useRef(st.state);
+  const [q, setQ] = useState<{running: {id: string; kind: string; progress: number}[]; waiting: {id: string; kind: string}[]}>({running: [], waiting: []});
+  const loadQ = useCallback(() => api('/api/queue').then(setQ).catch(() => {}), []);
   useEffect(() => {
-    if (prev.current === 'running' && st.state === 'done' && st.kind === 'render') {
+    loadQ();
+    const iv = setInterval(() => (loadQ(), poll()), 3000);
+    return () => clearInterval(iv);
+  }, [loadQ, poll]);
+  useEffect(() => {
+    if (prev.current === 'running' && st.state === 'done' && st.kind !== 'build') {
       reload();
-      say('Video finished!');
+      say(st.kind === 'short' ? 'Short finished!' : 'Video finished!');
     }
     prev.current = st.state;
   }, [st, reload, say]);
-  const go = async () => {
+  const go = async (short = false) => {
     try {
-      await api(`/api/projects/${proj.id}/render`, {body: {}});
+      const r = await api(`/api/projects/${proj.id}/render`, {body: {short}});
+      say(r.position ? `Added to the queue (#${r.position}). It starts when the current video is done.` : short ? 'Making the Short…' : 'Making the video…');
       poll();
+      loadQ();
     } catch (e: any) {
       say(e.message);
     }
   };
-  const busy = st.state === 'running' && st.kind === 'render';
+  const busy = st.state === 'running' && st.kind !== 'build';
+  const label = (k: string) => (k === 'short' ? 'Short' : 'Video');
   return (
     <div>
       <div className="row">
-        <button className="primary" onClick={go} disabled={st.state === 'running'}>
-          {busy ? 'Making video…' : 'Make the final video'}
+        <button className="primary" onClick={() => go(false)} disabled={busy}>
+          {busy && st.kind === 'render' ? 'Making video…' : 'Make the final video'}
+        </button>
+        <button onClick={() => go(true)} disabled={busy} title="Vertical 9:16 clip around the most dramatic line, for Shorts / TikTok">
+          {busy && st.kind === 'short' ? 'Making Short…' : 'Make a Short (9:16)'}
         </button>
         <button onClick={() => api('/api/open', {body: {what: 'videos'}})}>Open videos folder</button>
-        <span className="muted">A 5 minute video takes about 20–25 minutes. You can keep using the app meanwhile.</span>
+        <span className="muted">A 5 minute video takes about 20–25 minutes. If another video is rendering, this one waits in the queue, so you can line up several parts and leave it overnight.</span>
       </div>
       {busy && (
         <>
           <div className="bar">
             <div style={{width: `${st.progress}%`}} />
           </div>
-          <div className="muted">{st.progress}%</div>
+          <div className="muted">{label(st.kind)}: {st.progress}%</div>
         </>
       )}
-      {st.state === 'error' && st.kind === 'render' && <pre className="log err">{st.log}</pre>}
-      {proj.video && (
-        <div className="player">
-          <h3>Finished video</h3>
-          <video src={proj.video} controls style={{width: '100%'}} />
+      {(q.running.length > 0 || q.waiting.length > 0) && (
+        <div className="queue">
+          <b>Render queue</b>
+          {q.running.map((r) => (
+            <div key={r.id + r.kind}>▶ {r.id} ({label(r.kind)}) {r.progress}%</div>
+          ))}
+          {q.waiting.map((w, i) => (
+            <div key={w.id + w.kind}>
+              {i + 1}. {w.id} ({label(w.kind)}) <button className="small ghost" onClick={() => api(`/api/queue/${i}`, {method: 'DELETE'}).then(loadQ)}>remove</button>
+            </div>
+          ))}
         </div>
       )}
+      {st.state === 'error' && st.kind !== 'build' && <pre className="log err">{st.log}</pre>}
+      <div className="cols">
+        {proj.video && (
+          <div className="player grow">
+            <h3>Finished video</h3>
+            <video src={proj.video} controls style={{width: '100%'}} />
+          </div>
+        )}
+        {proj.short && (
+          <div className="player" style={{width: 300}}>
+            <h3>Short</h3>
+            <video src={proj.short} controls style={{width: '100%'}} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ---------- timeline under the preview: images, objects, effects, sounds; click to jump ----------
+const Timeline: React.FC<{job: Job; frame: number; frames: number; seek: (f: number) => void}> = ({job, frame, frames, seek}) => {
+  const total = frames / 30;
+  const off = job.hook?.dur ?? 0;
+  const pct = (t: number) => `${((t + off) / total) * 100}%`;
+  const bar = useRef<HTMLDivElement>(null);
+  const click = (e: React.MouseEvent) => {
+    const r = bar.current!.getBoundingClientRect();
+    seek(Math.round(((e.clientX - r.left) / r.width) * frames));
+  };
+  const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  return (
+    <div className="timeline" ref={bar} onClick={click}>
+      {off > 0 && <div className="tl-hook" style={{left: 0, width: `${(off / total) * 100}%`}} title="Hook intro">hook</div>}
+      <div className="tl-row">
+        {job.panels.map((p, i) => {
+          const a = p.starts[0];
+          const b = job.panels[i + 1]?.starts[0] ?? job.end;
+          return (
+            <div key={i} className={'tl-img' + (i % 2 ? ' alt' : '')} style={{left: pct(a), width: `${((b - a) / total) * 100}%`}} title={`Image ${i + 1} at ${mmss(a + off)}`}>
+              {i + 1}
+            </div>
+          );
+        })}
+      </div>
+      <div className="tl-row thin">
+        {job.panels.flatMap((p, i) => p.starts.map((s, k) => <i key={`${i}.${k}`} className="tl-obj" style={{left: pct(s)}} title={`${i + 1}.${k + 1} at ${mmss(s + off)}`} />))}
+      </div>
+      <div className="tl-row thin">
+        {job.fx.map((f, i) => <i key={i} className="tl-fx" style={{left: pct(f.t)}} title={`${f.type}${f.arg ? ':' + f.arg : ''} at ${mmss(f.t + off)}`} />)}
+      </div>
+      <div className="tl-row thin">
+        {(job.sounds || []).map((s, i) => (
+          <i key={i} className={'tl-snd' + (s.kind === 'amb' ? ' loop' : s.kind === 'amb-stop' ? ' stop' : '')} style={{left: pct(s.t)}} title={`${s.kind} ${s.file} at ${mmss(s.t + off)}`} />
+        ))}
+      </div>
+      <div className="tl-head" style={{left: `${(frame / frames) * 100}%`}} />
+      <div className="tl-legend">
+        <span>pictures</span><span className="o">objects</span><span className="f">effects</span><span className="s">sounds</span>
+        <span className="muted">click anywhere to jump · {mmss(frame / 30)} / {mmss(total)}</span>
+      </div>
+    </div>
+  );
+};
+
+// ---------- YouTube: title, description, tags and a thumbnail per part ----------
+const YT_DEFAULT = {
+  title: '{series} (Part {n})',
+  description: '{series} – Part {n}\n\nWrite a spoiler-free hook for the whole series here.\n\nNew part every day.\n\nSubscribe so you don\'t miss the next part.\n\n#storytime #animation #survivalstory #doodleanimation',
+  tags: 'storytime, animated story, doodle animation, survival story',
+  series: '',
+};
+const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => void}> = ({proj, reload, say}) => {
+  const [y, setY] = useState({...YT_DEFAULT, ...(proj.config.youtube || {})});
+  const n = Number(proj.id.match(/(\d+)\D*$/)?.[1] || 1);
+  const fill = (t: string) => t.replaceAll('{n}', String(n)).replaceAll('{series}', y.series || proj.id.replace(/[_\d]+$/, '').replace(/_/g, ' '));
+  const set = (k: string, v: string) => setY((s: any) => ({...s, [k]: v}));
+  const save = async () => {
+    await api(`/api/projects/${proj.id}/config`, {method: 'PUT', body: {youtube: y}});
+    say('Saved. Duplicate this project for the next part and these come along.');
+    reload();
+  };
+  const copy = (t: string) => navigator.clipboard.writeText(t).then(() => say('Copied'));
+  // thumbnail
+  const [img, setImg] = useState(proj.images[0]?.n || 1);
+  const [obj, setObj] = useState(0);  // 0 = whole image
+  const [line1, setLine1] = useState('');
+  const [line2, setLine2] = useState('');
+  const cv = useRef<HTMLCanvasElement>(null);
+  const [rows, cols] = proj.config.grid || [2, 3];
+  useEffect(() => {
+    const c = cv.current;
+    const src = proj.images.find((i) => i.n === img)?.url;
+    if (!c || !src) return;
+    const g = c.getContext('2d')!;
+    const im = new Image();
+    im.onload = () => {
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, 1280, 720);
+      let sx = 0, sy = 0, sw = im.width, sh = im.height;
+      if (obj > 0) {
+        sw = im.width / cols;
+        sh = im.height / rows;
+        sx = ((obj - 1) % cols) * sw;
+        sy = Math.floor((obj - 1) / cols) * sh;
+      }
+      const sc = Math.min(1280 / sw, 720 / sh);
+      g.drawImage(im, sx, sy, sw, sh, (1280 - sw * sc) / 2, (720 - sh * sc) / 2, sw * sc, sh * sc);
+      const text = (t: string, yy: number, size: number, fill: string) => {
+        if (!t) return;
+        // shrink until it fits the 1280 px width
+        g.font = `900 ${size}px "Segoe UI", Arial, sans-serif`;
+        while (size > 30 && g.measureText(t.toUpperCase()).width > 1180) g.font = `900 ${(size -= 4)}px "Segoe UI", Arial, sans-serif`;
+        g.textAlign = 'center';
+        g.lineJoin = 'round';
+        g.lineWidth = size * 0.22;
+        g.strokeStyle = '#111';
+        g.strokeText(t.toUpperCase(), 640, yy);
+        g.fillStyle = fill;
+        g.fillText(t.toUpperCase(), 640, yy);
+      };
+      text(line1, 120, 84, '#fff');
+      text(line2, 670, 84, '#ffd23f');
+      g.fillStyle = '#d6402f';
+      g.beginPath();
+      (g as any).roundRect?.(1040, 24, 216, 74, 14);
+      g.fill();
+      g.fillStyle = '#fff';
+      g.font = '900 46px "Segoe UI", Arial, sans-serif';
+      g.textAlign = 'center';
+      g.fillText(`PART ${n}`, 1148, 78);
+    };
+    im.src = src;
+  }, [img, obj, line1, line2, proj.images, n, rows, cols]);
+  const download = () => {
+    const a = document.createElement('a');
+    a.href = cv.current!.toDataURL('image/png');
+    a.download = `thumb_${proj.id}.png`;
+    a.click();
+  };
+  return (
+    <div className="cols">
+      <div className="form grow">
+        <label>
+          Series name <input value={y.series} placeholder="I Died in a Flood and Woke Up in Pangaea" onChange={(e) => set('series', e.target.value)} />
+        </label>
+        <label>
+          Title template <input value={y.title} onChange={(e) => set('title', e.target.value)} /> <span className="muted">{'{series}'} and {'{n}'} (part number) are filled in</span>
+        </label>
+        <label>
+          Description template <textarea rows={9} value={y.description} onChange={(e) => set('description', e.target.value)} />
+        </label>
+        <label>
+          Tags <input value={y.tags} onChange={(e) => set('tags', e.target.value)} />
+        </label>
+        <div className="row">
+          <button className="primary" onClick={save}>Save</button>
+        </div>
+        <h3>Ready to paste (Part {n})</h3>
+        <div className="ytout"><button className="small" onClick={() => copy(fill(y.title))}>Copy</button><b>{fill(y.title)}</b></div>
+        <div className="ytout"><button className="small" onClick={() => copy(fill(y.description))}>Copy</button><pre>{fill(y.description)}</pre></div>
+        <div className="ytout"><button className="small" onClick={() => copy(fill(y.tags))}>Copy</button><span>{fill(y.tags)}</span></div>
+      </div>
+      <div className="help" style={{width: 440}}>
+        <h3>Thumbnail</h3>
+        <div className="row">
+          <label>Image <select value={img} onChange={(e) => setImg(Number(e.target.value))}>{proj.images.map((i) => <option key={i.n} value={i.n}>{i.n}</option>)}</select></label>
+          <label>Object <select value={obj} onChange={(e) => setObj(Number(e.target.value))}><option value={0}>whole</option>{Array.from({length: rows * cols}, (_, i) => <option key={i} value={i + 1}>{img}.{i + 1}</option>)}</select></label>
+        </div>
+        <input placeholder="Top text (e.g. DIED IN A FLOOD…)" value={line1} onChange={(e) => setLine1(e.target.value)} style={{width: '100%', marginBottom: 6}} />
+        <input placeholder="Bottom text (e.g. WOKE UP IN PANGAEA)" value={line2} onChange={(e) => setLine2(e.target.value)} style={{width: '100%', marginBottom: 6}} />
+        <canvas ref={cv} width={1280} height={720} style={{width: '100%', border: '1px solid var(--line)', borderRadius: 6}} />
+        <button className="primary" onClick={download} disabled={!proj.images.length}>Download thumbnail</button>
+      </div>
     </div>
   );
 };
@@ -693,6 +947,10 @@ const Settings: React.FC<{proj: Project; reload: () => void; say: (m: string) =>
     pitch: c.pitch || '-2Hz',
     captions: c.captions ?? true,
     subscribe_at: c.subscribe_at ?? 20,
+    caption_style: c.caption_style || 'words',
+    music: c.music || '',
+    music_vol: c.music_vol ?? 15,
+    hook: !!c.hook,
     endText: c.end_card?.text ?? 'To be continued...',
     endSub: c.end_card?.sub ?? "Subscribe so you don't miss it!",
   });
@@ -706,6 +964,10 @@ const Settings: React.FC<{proj: Project; reload: () => void; say: (m: string) =>
         rate: v.rate,
         pitch: v.pitch,
         captions: v.captions,
+        caption_style: v.caption_style,
+        music: v.music || null,
+        music_vol: Number(v.music_vol) || 15,
+        hook: v.hook,
         subscribe_at: v.subscribe_at === '' ? null : Number(v.subscribe_at),
         end_card: v.endText ? {text: v.endText, sub: v.endSub} : null,
       },
@@ -740,6 +1002,18 @@ const Settings: React.FC<{proj: Project; reload: () => void; say: (m: string) =>
         <input type="checkbox" checked={v.captions} onChange={(e) => set('captions', e.target.checked)} /> Show captions
       </label>
       <label>
+        Caption style
+        <select value={v.caption_style} onChange={(e) => set('caption_style', e.target.value)}>
+          <option value="words">Word by word (highlights each word as it's spoken)</option>
+          <option value="line">Whole line</option>
+        </select>
+      </label>
+      <MusicPick value={v.music} vol={Number(v.music_vol)} onChange={(m) => set('music', m)} onVol={(n) => set('music_vol', n)} />
+      <label className="check">
+        <input type="checkbox" checked={v.hook} onChange={(e) => set('hook', e.target.checked)} /> Hook intro
+        <span className="muted">opens with the most dramatic line (or the one with a [hook] tag), then rewinds to the start</span>
+      </label>
+      <label>
         Subscribe pop-up at (seconds) <input value={v.subscribe_at ?? ''} onChange={(e) => set('subscribe_at', e.target.value)} />{' '}
         <span className="muted">leave empty for none</span>
       </label>
@@ -754,6 +1028,32 @@ const Settings: React.FC<{proj: Project; reload: () => void; say: (m: string) =>
         <button onClick={() => api('/api/open', {body: {what: 'project', id: proj.id}})}>Open project folder</button>
       </div>
     </div>
+  );
+};
+
+const MusicPick: React.FC<{value: string; vol: number; onChange: (f: string) => void; onVol: (n: number) => void}> = ({value, vol, onChange, onVol}) => {
+  const [list, setList] = useState<{file: string; mood: string; name: string}[]>([]);
+  useEffect(() => void api('/api/music').then(setList).catch(() => setList([])), []);
+  const moods = [...new Set(list.map((m) => m.mood))];
+  return (
+    <label>
+      Background music
+      <div className="row" style={{marginBottom: 0}}>
+        <select value={value} onChange={(e) => onChange(e.target.value)} style={{flex: 1}}>
+          <option value="">None</option>
+          {moods.map((m) => (
+            <optgroup key={m} label={m}>
+              {list.filter((x) => x.mood === m).map((x) => <option key={x.file} value={x.file}>{x.name}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <button className="small" disabled={!value} onClick={(e) => (e.preventDefault(), playSound(value, vol))}>▶ / ■</button>
+      </div>
+      <span className="row" style={{marginBottom: 0}}>
+        Volume <input type="range" min={5} max={40} value={vol} onChange={(e) => onVol(Number(e.target.value))} /> {vol}%
+        <span className="muted">It gets quieter by itself while the narrator talks.</span>
+      </span>
+    </label>
   );
 };
 

@@ -6,6 +6,15 @@
 3. 2. Images & Effects: upload images named 1.png, 2.png... Each image is a 2 x 3 grid (n.1 n.2 n.3 on top, n.4 n.5 n.6 below). Pick effects per object, then Save effects.
 4. 3. Play: press Build preview, then watch it.
 5. 4. Make video: press Make the final video. It lands in out/studio.
+6. Optional: Make a Short (9:16) for YouTube Shorts / TikTok. Line up several videos; they render one after another (queue).
+
+## Studio extras
+- Script tab: Check script finds problems before you build (missing sounds, loops that never stop, [dark] without [light], missing images). Click a problem to jump to its line.
+- Script tab: Suggest sounds adds sounds before words like roar, scream, door, thunder. Undo removes them all.
+- Play tab: the strip under the player shows pictures, objects, effects and sounds. Click it to jump. Rebuild keeps your place.
+- Settings: word-by-word captions, background music (ducks under the voice), Hook intro (opens with the most dramatic line; put [hook] before a sentence to choose it).
+- Duplicate (next to the project name) copies settings, music, end card and YouTube text to the next part.
+- YouTube tab: title/description/tags templates with {series} and {n}, plus a thumbnail maker.
 
 ## DeepSeek: make a tagged SRT from a story
 1. Attach the sound list: C:\Users\Admin\OneDrive\Desktop\DCODE\Story Maker\sfx\SOUND_LIST.txt

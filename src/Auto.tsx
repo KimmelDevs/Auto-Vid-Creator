@@ -16,6 +16,8 @@ const rnd = (n: number) => {
 };
 
 export type Fx = {t: number; type: string; arg?: string; dur?: number};
+// one spoken sentence; wt = start of each word, in seconds after `at`
+export type Line = {text: string; at: number; dur: number; wt?: number[]};
 export type Panel = {src: string; starts: number[]; boxes: number[][]};
 export type Job = {
   dir: string;
@@ -23,8 +25,13 @@ export type Job = {
   end: number;
   panels: Panel[];
   fx: Fx[];
-  voice: {text: string; at: number; dur: number}[];
+  voice: Line[];
   captions: boolean;
+  // 'words' (default): show a few words at a time and highlight the one being spoken
+  captionStyle?: 'words' | 'line';
+  // replay a dramatic line first (its audio is already at the start of voice.wav), then the story
+  hook?: {at: number; dur: number; panel: number; obj: number; voice: Line} | null;
+  sounds?: {t: number; file: string; kind: string}[];
   endCard?: {text: string; sub?: string} | null;
   subscribeAt?: number | null;
   // 'storyboard' (default): camera travels across the whole page; 'focus': each object alone, centred
@@ -172,18 +179,63 @@ const FocusView: React.FC<{t: number; job: Job}> = ({t, job}) => {
   );
 };
 
-const Captions: React.FC<{t: number; voice: Job['voice']}> = ({t, voice}) => {
+// the words on screen right now: the whole line, or (words style) the chunk of up to 7 words being spoken
+export const captionAt = (t: number, voice: Line[], style: Job['captionStyle']) => {
   const c = voice.find((q) => t >= q.at - 0.05 && t < q.at + q.dur + 0.25);
   if (!c) return null;
+  const words = c.text.split(' ');
+  if (style === 'line' || !c.wt || c.wt.length !== words.length) return {words, active: -1};
+  const cur = Math.max(0, c.wt.reduce((acc, w, i) => (t >= c.at + w - 0.03 ? i : acc), 0));
+  const per = words.length <= 9 ? words.length : Math.ceil(words.length / Math.ceil(words.length / 7));
+  const from = Math.floor(cur / per) * per;
+  return {words: words.slice(from, from + per), active: cur - from};
+};
+
+export const CaptionWords: React.FC<{words: string[]; active: number; size: number}> = ({words, active, size}) => (
+  <>
+    {words.map((w, i) => (
+      <span key={i} style={{
+        display: 'inline-block', margin: `0 ${size * 0.12}px`, padding: `0 ${size * 0.12}px`, borderRadius: size * 0.2,
+        background: i === active ? '#ffd23f' : 'transparent', color: active < 0 || i <= active ? '#111' : '#555',
+        transform: i === active ? 'scale(1.06)' : undefined,
+      }}>
+        {w}
+      </span>
+    ))}
+  </>
+);
+
+const Captions: React.FC<{t: number; voice: Line[]; style: Job['captionStyle']}> = ({t, voice, style}) => {
+  const c = captionAt(t, voice, style);
+  if (!c) return null;
+  const big = style !== 'line';
   return (
     <div style={{position: 'absolute', left: 0, right: 0, bottom: 56, display: 'flex', justifyContent: 'center'}}>
       <div style={{
-        maxWidth: 1400, textAlign: 'center', fontFamily: '"Segoe UI", Arial, sans-serif', fontWeight: 700, fontSize: 40, lineHeight: 1.3,
+        maxWidth: 1400, textAlign: 'center', fontFamily: '"Segoe UI", Arial, sans-serif', fontWeight: big ? 800 : 700, fontSize: big ? 48 : 40, lineHeight: 1.3,
         color: '#111', background: 'rgba(255,255,255,0.92)', border: '4px solid #111', borderRadius: 16, padding: '10px 26px',
       }}>
-        {c.text}
+        <CaptionWords words={c.words} active={c.active} size={big ? 48 : 40} />
       </div>
     </div>
+  );
+};
+
+// the hook: one object close up with its line, darkened, ending in a VHS rewind back to the start
+const HookView: React.FC<{job: Job}> = ({job}) => {
+  const t = useCurrentFrame() / FPS;
+  const h = job.hook!;
+  const p = job.panels[h.panel] ?? job.panels[0];
+  const shot: Shot = {src: p.src, box: p.boxes[h.obj] ?? p.boxes[0], start: 0, pi: h.panel};
+  const zoom = 1 + 0.12 * tw(t, 0, h.dur, 0, 1, (x) => x);
+  const fx: Fx[] = [{t: Math.max(0, h.dur - 0.9), type: 'rewind'}, {t: 0.1, type: 'shake', arg: 'small'}];
+  return (
+    <AbsoluteFill style={{background: '#fff'}}>
+      <ShotView s={shot} t={t + 1.2} job={job} id="hook" whole={0} zoom={zoom} />
+      <AbsoluteFill style={{boxShadow: 'inset 0 0 260px rgba(0,0,0,0.55)'}} />
+      <Overlays t={t} job={{...job, fx}} />
+      {job.captions ? <Captions t={t} voice={[h.voice]} style={job.captionStyle} /> : null}
+    </AbsoluteFill>
   );
 };
 
@@ -244,7 +296,8 @@ const Overlays: React.FC<{t: number; job: Job}> = ({t, job}) => {
 };
 const f2 = (job: Job, type: string) => (type === 'red' ? 3 : 1);
 
-export const Auto: React.FC<{job: Job}> = ({job}) => {
+// the story itself (no audio): its frame 0 is the start of the narration
+const Main: React.FC<{job: Job}> = ({job}) => {
   const t = useCurrentFrame() / FPS;
   const P = job.panels;
   if (!P.length) return <AbsoluteFill style={{background: '#fff'}} />;
@@ -276,7 +329,7 @@ export const Auto: React.FC<{job: Job}> = ({job}) => {
         </>
       )}
       <Overlays t={t} job={job} />
-      {job.captions ? <Captions t={t} voice={job.voice} /> : null}
+      {job.captions ? <Captions t={t} voice={job.voice} style={job.captionStyle} /> : null}
       {subs.map((s) => (
         <Sequence key={s} from={Math.round(s * FPS)} durationInFrames={4 * FPS}><SubscribeOverlay /></Sequence>
       ))}
@@ -285,11 +338,67 @@ export const Auto: React.FC<{job: Job}> = ({job}) => {
           <EndCard text={job.endCard.text} sub={job.endCard.sub} />
         </Sequence>
       ) : null}
+    </AbsoluteFill>
+  );
+};
+
+const hookFrames = (job: Job) => (job.hook ? Math.round(job.hook.dur * FPS) : 0);
+
+export const Auto: React.FC<{job: Job}> = ({job}) => {
+  const hf = hookFrames(job);
+  return (
+    <AbsoluteFill style={{background: '#fff'}}>
+      {hf ? (
+        <Sequence durationInFrames={hf}>
+          <HookView job={job} />
+        </Sequence>
+      ) : null}
+      <Sequence from={hf}>
+        <Main job={job} />
+      </Sequence>
       {job.audio ? <Audio src={staticFile(`${job.dir}/${job.audio}`)} /> : null}
     </AbsoluteFill>
   );
 };
 
-export const autoMetadata: CalculateMetadataFunction<{job: Job}> = ({props}) => ({
-  durationInFrames: Math.ceil((props.job.end + (props.job.endCard ? 5 : 0)) * FPS),
+export const totalFrames = (job: Job) => hookFrames(job) + Math.ceil((job.end + (job.endCard ? 5 : 0)) * FPS);
+
+export const autoMetadata: CalculateMetadataFunction<{job: Job}> = ({props}) => ({durationInFrames: totalFrames(props.job)});
+
+// ---- vertical 9:16 Short: title on top, the video in the middle, big word captions below
+export type ShortInfo = {start: number; dur: number; title: string};
+
+export const AutoShort: React.FC<{job: Job; short: ShortInfo}> = ({job, short}) => {
+  const f = useCurrentFrame();
+  const t = short.start + f / FPS;
+  // story time (captions are timed without the hook)
+  const st = t - (job.hook?.dur ?? 0);
+  const c = captionAt(st, job.voice, 'words');
+  const inner = {...job, captions: false, endCard: null, subscribeAt: null};
+  const scale = 1080 / 1920;
+  const fadeOut = 1 - tw(f / FPS, short.dur - 0.6, short.dur);
+  return (
+    <AbsoluteFill style={{background: '#fff', opacity: fadeOut}}>
+      <div style={{position: 'absolute', top: 150, left: 60, right: 60, textAlign: 'center', fontFamily: '"Segoe UI", Arial, sans-serif', fontWeight: 900, fontSize: 74, lineHeight: 1.12, color: '#111'}}>
+        {short.title}
+      </div>
+      <div style={{position: 'absolute', top: 560, left: 0, width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: 'top left', overflow: 'hidden', borderTop: '6px solid #111', borderBottom: '6px solid #111'}}>
+        <Sequence from={-Math.round(short.start * FPS)}>
+          <Auto job={inner} />
+        </Sequence>
+      </div>
+      {c ? (
+        <div style={{position: 'absolute', top: 1260, left: 50, right: 50, textAlign: 'center', fontFamily: '"Segoe UI", Arial, sans-serif', fontWeight: 900, fontSize: 76, lineHeight: 1.25}}>
+          <CaptionWords words={c.words} active={c.active} size={76} />
+        </div>
+      ) : null}
+      <div style={{position: 'absolute', bottom: 170, left: 0, right: 0, textAlign: 'center', fontFamily: '"Segoe UI", Arial, sans-serif', fontWeight: 700, fontSize: 44, color: '#d6402f'}}>
+        Full story on my channel
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+export const shortMetadata: CalculateMetadataFunction<{job: Job; short: ShortInfo}> = ({props}) => ({
+  durationInFrames: Math.max(1, Math.round(props.short.dur * FPS)),
 });

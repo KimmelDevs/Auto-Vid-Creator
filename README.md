@@ -43,7 +43,8 @@ my_story/
 python autovid/autovid.py my_story --render
 ```
 
-This writes `my_story/my_story.mp4`. Run it from this project folder. Without `--render` it
+This writes `my_story/my_story.mp4`. Add `--short` to make a vertical 9:16 Short around the most
+dramatic line instead (`my_story/my_story_short.mp4`). Run it from this project folder. Without `--render` it
 only builds the job, which is useful for checking the printed summary before a long render.
 
 The first run makes the voice clips, and later runs reuse them from `my_story/.cache/`.
@@ -99,6 +100,7 @@ images and objects are spread evenly over the whole video.
 | `[label: Day 2]` | Hand-drawn sticker top-left for 5 s | any text |
 | `[subscribe]` | Subscribe button pop-up with a click and the bell | |
 | `[pause:1.5]` | Silence before the next sentence (seconds). Pushes later lines back | |
+| `[hook]` | With `"hook": true`, open the video with this sentence instead of the auto-picked one | |
 
 Unknown tags are skipped with a warning, so a typo never breaks a render.
 
@@ -133,7 +135,12 @@ A missing file is skipped with `! sound not found`.
   "captions": true,
   "subscribe_at": 20,
   "end_card": {"text": "Part 2 coming next...", "sub": "Subscribe so you don't miss it!"},
-  "auto_effects": false
+  "auto_effects": false,
+  "caption_style": "words",
+  "music": "bgm/dark/some_track.mp3",
+  "music_vol": 15,
+  "hook": true,
+  "short_len": 55
 }
 ```
 
@@ -146,6 +153,11 @@ A missing file is skipped with `! sound not found`.
 | `captions` | `false` to hide the caption box |
 | `subscribe_at` | Seconds into the video for the subscribe pop-up. `null` = off. A `[subscribe]` tag replaces it |
 | `end_card` | 5 s end screen after the story. `null` = none |
+| `caption_style` | `"words"` shows a few words at a time and highlights the one being spoken; `"line"` shows the whole sentence |
+| `music` | Background music under the whole video, path inside the sfx folder (`bgm/<mood>/...`). It ducks under the voice automatically |
+| `music_vol` | Music volume in percent (default 15) |
+| `hook` | `true` opens with the most dramatic line (or the `[hook]` sentence), then rewinds to the start |
+| `short_len` | Length in seconds of the `--short` 9:16 clip (default 55) |
 | `auto_effects` | `true` adds shakes and flashes on words like *explosion, gunshot, slam, knock*, but only when the SRT has no effect tags |
 
 ## 5. Prompt template for the images

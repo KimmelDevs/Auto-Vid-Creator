@@ -33,12 +33,17 @@ DEFAULTS = {
     'subscribe_at': 20,          # seconds; null to disable (a [subscribe] tag also works)
     'end_card': {'text': 'To be continued...', 'sub': "Subscribe so you don't miss it!"},
     'auto_effects': False,       # add shakes/flashes from keywords when the SRT has no effect tags
+    'caption_style': 'words',    # 'words': highlight each word as it's spoken; 'line': plain line
+    'music': None,               # background music, path inside sfx_dir (e.g. "bgm/dark/xyz.mp3"); ducks under the voice
+    'music_vol': 15,             # percent
+    'hook': False,               # open with a dramatic line from later in the video, then rewind to the start
+    'short_len': 55,             # seconds, for --short (vertical 9:16 clip)
     'browser': os.environ.get('REMOTION_BROWSER', 'C:/Users/Admin/AppData/Local/Temp/rhs/chrome-headless-shell.exe'),  # used only if it exists
     # [sfx:...] / [amb:...] paths are relative to this: the repo's sfx/ once downloaded, else ../sfx
     'sfx_dir': str(ROOT / 'sfx' if any((ROOT / 'sfx').glob('*/*.mp3')) or not (ROOT.parent / 'sfx').exists() else ROOT.parent / 'sfx'),
 }
 EFFECTS = {'shake', 'flash', 'boom', 'zoom', 'heartbeat', 'red', 'glitch', 'rewind', 'fade', 'dark', 'light',
-           'whole', 'subscribe', 'knock', 'label', 'pause'}
+           'whole', 'subscribe', 'knock', 'label', 'pause', 'hook'}
 TAG = re.compile(r'\[([^\]]+)\]')
 OBJ = re.compile(r'^(\d+)(?:[.\-](\d+))?$')
 
@@ -167,7 +172,7 @@ def peak_db(f, cache):
     return peaks[key]
 
 
-def mix_sounds(wav, out, sounds, end, sfx_dir, cache):
+def mix_sounds(wav, out, sounds, end, sfx_dir, cache, music=None, music_vol=15):
     """Lay [sfx]/[amb] sounds (list of (time, spec)) under the narration in wav, written to out.
     out is overwritten in place, never renamed: the studio player may hold it open."""
     sfx_dir = Path(sfx_dir)
@@ -212,11 +217,28 @@ def mix_sounds(wav, out, sounds, end, sfx_dir, cache):
                 chain.append(f'afade=t=out:st={max(0, length - fo):.3f}:d={fo:.2f}')
             chain.append(f'adelay={ms}|{ms}')
             filters.append(f'[{n}:a]{",".join(chain)}[s{n}]')
-    if not n:
+    mus = sfx_dir / music if music else None
+    if mus and not mus.exists():
+        print(f'  ! music not found: {music}')
+        mus = None
+    if not n and not mus:
         shutil.copyfile(wav, out)
         return 0
-    mix = '[0:a]' + ''.join(f'[s{i}]' for i in range(1, n + 1))
-    filters.append(f'{mix}amix=inputs={n + 1}:normalize=0:duration=first,alimiter=limit=0.9:level=0,atrim=0:{end}[out]')
+    labels = ''.join(f'[s{i}]' for i in range(1, n + 1))
+    if mus:
+        # music loops under everything and ducks (sidechain) whenever the narrator speaks
+        mi = n + 1
+        inputs += ['-stream_loop', '-1', '-i', str(mus), '-i', str(wav)]
+        level = min(30.0, -1.0 - peak_db(mus, cache))
+        filters.append(f'[{mi}:a]atrim=0:{end:.3f},asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo,'
+                       f'volume={level:.2f}dB,volume={music_vol / 100:.3f},afade=t=in:d=2,afade=t=out:st={max(0, end - 3):.3f}:d=3[mus]')
+        filters.append(f'[{mi + 1}:a]aformat=sample_rates=44100:channel_layouts=stereo[key]')
+        filters.append('[mus][key]sidechaincompress=threshold=0.015:ratio=10:attack=40:release=700[duck]')
+        labels += '[duck]'
+        n_in = n + 2
+    else:
+        n_in = n + 1
+    filters.append(f'[0:a]{labels}amix=inputs={n_in}:normalize=0:duration=first,alimiter=limit=0.9:level=0,atrim=0:{end}[out]')
     fc = cache / 'sfx_filter.txt'
     fc.write_text(';'.join(filters))
     subprocess.run([FF, '-y', *inputs, '-filter_complex_script', str(fc), '-map', '[out]', '-ar', '44100', '-ac', '2', str(out)],
@@ -242,7 +264,53 @@ def grid_boxes(path, rows, cols):
     return out
 
 
-def build(folder, name=None, render=False, out=None):
+def part_number(name):
+    m = re.findall(r'\d+', name)
+    return int(m[-1]) if m else 1
+
+
+HOOK_WORDS = re.compile(r'scream|blood|dead|die|died|kill|gun|shot|roar|attack|bite|teeth|claw|grab|drag|torn|ripped|fire|'
+                        r'explo|crash|monster|raider|knife|spear|crush|snap|broke|howl|hunt|jaw|eaten|scream|run', re.I)
+
+
+def pick_hook(items, tags, words, end):
+    """The sentence to open with: the one holding a [hook] tag, else the most dramatic line in the middle of the video."""
+    for wi, (kind, _), _ in tags:
+        if kind == 'hook':
+            for it in items:
+                if wi in it['idx'] or (it['idx'] and it['idx'][0] >= wi):
+                    return it
+    best, score = None, 0.0
+    for it in items:
+        pos = it['at'] / max(end, 1)
+        n = len(it['idx'])
+        if not 0.25 <= pos <= 0.92 or not 5 <= n <= 26:
+            continue
+        sc = 2 * len(HOOK_WORDS.findall(it['text'])) + it['text'].count('!') + 0.5 * ('"' in it['text'])
+        if sc > score:
+            best, score = it, sc
+    return best
+
+
+def add_hook(mix, out, hs, he, hook_dur, sfx_dir):
+    """out = the hook line (hs..he of mix) + a short rewind + the whole mix."""
+    seg = he - hs
+    inputs = ['-i', str(mix)]
+    f = [f'[0:a]atrim={hs:.3f}:{he:.3f},asetpts=PTS-STARTPTS,afade=t=in:d=0.08,afade=t=out:st={max(0, seg - 0.3):.3f}:d=0.3,'
+         f'apad=whole_dur={hook_dur:.3f}[h]', '[0:a]asetpts=PTS-STARTPTS[m]', '[h][m]concat=n=2:v=0:a=1[c]']
+    rw = next((p for p in [sfx_dir / 'transitions/tape_rewind_transition.mp3', sfx_dir / 'transitions/fast_tape_rewind_cinematic_transition.mp3'] if p.exists()), None)
+    if rw:
+        inputs += ['-i', str(rw)]
+        ms = int(max(0, hook_dur - 0.9) * 1000)
+        f.append(f'[1:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.5,adelay={ms}|{ms}[r]')
+        f.append('[c][r]amix=inputs=2:normalize=0:duration=first[out]')
+    else:
+        f[-1] = '[h][m]concat=n=2:v=0:a=1[out]'
+    subprocess.run([FF, '-y', *inputs, '-filter_complex', ';'.join(f), '-map', '[out]', '-ar', '44100', '-ac', '2', str(out)],
+                   check=True, capture_output=True)
+
+
+def build(folder, name=None, render=False, out=None, short=False):
     folder = Path(folder).resolve()
     cfg = dict(DEFAULTS)
     if (folder / 'config.json').exists():
@@ -316,7 +384,11 @@ def build(folder, name=None, render=False, out=None):
 
     # ---- sound effects and ambience, mixed under the narration
     sounds = [(round(tag_time(wi), 2), arg) for wi, (kind, arg), _ in tags if kind == 'sound']
-    n_snd = mix_sounds(cache / 'voice_raw.wav', dest / 'voice.wav', sounds, end, cfg['sfx_dir'], cache)
+    n_snd = mix_sounds(cache / 'voice_raw.wav', cache / 'voice_mix.wav', sounds, end, cfg['sfx_dir'], cache,
+                       cfg.get('music'), float(cfg.get('music_vol') or 15))
+    for it in items:
+        it['wt'] = [round(wtime[i] - it['at'], 2) for i in it['idx']]
+    hook_item = pick_hook(items, tags, words, end)
 
     # ---- object timing: tagged objects are anchors, the rest are spread between anchors and snapped to sentences
     n_obj = len(imgs) * K
@@ -346,7 +418,7 @@ def build(folder, name=None, render=False, out=None):
     # ---- effects
     fx = []
     for wi, (kind, arg), _ in tags:
-        if kind in ('obj', 'pause', 'sound'):
+        if kind in ('obj', 'pause', 'sound', 'hook'):
             continue
         t = round(tag_time(wi), 2)
         if kind == 'knock':
@@ -369,6 +441,17 @@ def build(folder, name=None, render=False, out=None):
         shutil.copyfile(p, dest / out_name)
         panels.append({'src': out_name, 'starts': [round(times[(n - 1) * K + k], 2) for k in range(K)], 'boxes': grid_boxes(p, rows, cols)})
 
+    # ---- hook intro: replay a dramatic line first, then the story from the start
+    hook = None
+    if cfg.get('hook') and hook_item:
+        hs, he = max(0.0, hook_item['at'] - 0.15), min(end, hook_item['at'] + hook_item['dur'] + 0.45)
+        g = max([g for g in range(n_obj) if times[g] <= hook_item['at'] + 0.2] or [0])
+        hook = {'at': round(hs, 2), 'dur': round(he - hs + 0.5, 2), 'panel': g // K, 'obj': g % K,
+                'voice': {'text': hook_item['text'], 'at': round(hook_item['at'] - hs, 2), 'dur': round(hook_item['dur'], 2), 'wt': hook_item['wt']}}
+        add_hook(cache / 'voice_mix.wav', dest / 'voice.wav', hs, he, hook['dur'], Path(cfg['sfx_dir']))
+    else:
+        shutil.copyfile(cache / 'voice_mix.wav', dest / 'voice.wav')
+
     has_sub_tag = any(f['type'] == 'subscribe' for f in fx)
     job = {
         'dir': f'jobs/{name}',
@@ -376,7 +459,11 @@ def build(folder, name=None, render=False, out=None):
         'end': end,
         'panels': panels,
         'fx': sorted(fx, key=lambda f: f['t']),
-        'voice': [{'text': it['text'], 'at': round(it['at'], 2), 'dur': round(it['dur'], 2)} for it in items],
+        'voice': [{'text': it['text'], 'at': round(it['at'], 2), 'dur': round(it['dur'], 2), 'wt': it['wt']} for it in items],
+        'captionStyle': cfg.get('caption_style', 'words'),
+        'hook': hook,
+        # for the studio timeline only
+        'sounds': [{'t': t, 'file': snd['file'], 'kind': snd['kind']} for t, snd in sounds],
         'captions': bool(cfg['captions']),
         'endCard': cfg['end_card'],
         'subscribeAt': None if has_sub_tag else cfg['subscribe_at'],
@@ -387,9 +474,25 @@ def build(folder, name=None, render=False, out=None):
     late = max(it['at'] - it['start'] for it in items)
     print(f'  voice {len(items)} sentences, ends {end:.1f}s (max drift {late:.1f}s); {len(known)} tagged objects; {len(fx)} effects; {n_snd} sounds')
 
-    if render:
-        out = Path(out or (folder / f'{name}.mp4')).resolve()
-        cmd = ['npx', 'remotion', 'render', 'src/index.ts', 'Auto', str(out), f'--props={props}', '--concurrency=3', '--log=error']
+    comp = 'Auto'
+    if short:
+        # 9:16 clip around the most dramatic line, for Shorts/TikTok
+        pick = hook_item or items[len(items) // 2]
+        length = min(float(cfg.get('short_len') or 55), end)
+        want = max(0.0, pick['at'] - length * 0.45)
+        start = max([it['at'] - 0.2 for it in items if it['at'] - 0.2 <= want] or [0.0])
+        start = max(0.0, min(start, end - length))
+        yt = cfg.get('youtube') or {}
+        title = (yt.get('title') or folder.name.replace('_', ' ')).replace('{n}', str(part_number(folder.name)))
+        offset = hook['dur'] if hook else 0.0
+        sprops = dest / 'short_props.json'
+        sprops.write_text(json.dumps({'job': job, 'short': {'start': round(start + offset, 2), 'dur': round(length, 2), 'title': title}}))
+        props, comp = sprops, 'AutoShort'
+        print(f'  short: {length:.0f}s from {start:.1f}s')
+
+    if render or short:
+        out = Path(out or (folder / f'{name}{"_short" if short else ""}.mp4')).resolve()
+        cmd = ['npx', 'remotion', 'render', 'src/index.ts', comp, str(out), f'--props={props}', '--concurrency=3', '--log=error']
         if cfg.get('browser') and Path(cfg['browser']).exists():
             cmd.append(f"--browser-executable={cfg['browser']}")
         print('  rendering ->', out)
@@ -403,5 +506,6 @@ if __name__ == '__main__':
     ap.add_argument('--name', help='job name (defaults to the folder name)')
     ap.add_argument('--render', action='store_true', help='render the mp4 after building')
     ap.add_argument('--out', help='output mp4 path (default: <folder>/<name>.mp4)')
+    ap.add_argument('--short', action='store_true', help='render a vertical 9:16 Short around the most dramatic line instead')
     a = ap.parse_args()
-    build(a.folder, a.name, a.render, a.out)
+    build(a.folder, a.name, a.render, a.out, a.short)

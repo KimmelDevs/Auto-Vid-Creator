@@ -116,6 +116,31 @@ section { padding: 20px 24px 60px; }
 
 .toast { position: fixed; bottom: 20px; right: 20px; background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); max-width: 420px; z-index: 50; }
 
+.problems { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 14px; }
+.prob { padding: 3px 0; cursor: pointer; }
+.prob.error b { color: #c62828; }
+.prob.warn b { color: #c77700; }
+.prob.info b { color: #1d4f91; }
+.prob.ok b { color: #2e7d32; }
+.timeline { position: relative; background: #fff; padding: 8px 0 4px; cursor: pointer; user-select: none; }
+.tl-row { position: relative; height: 22px; margin: 2px 0; }
+.tl-row.thin { height: 12px; }
+.tl-img { position: absolute; top: 0; bottom: 0; background: #e9e6df; border-right: 1px solid #fff; font-size: 11px; color: #555; padding-left: 4px; overflow: hidden; }
+.tl-img.alt { background: #dcd8cf; }
+.tl-hook { position: absolute; top: 8px; height: 22px; background: #2b2a30; color: #fff; font-size: 11px; padding-left: 4px; z-index: 1; }
+.tl-row i { position: absolute; top: 1px; width: 3px; height: 10px; margin-left: -1px; border-radius: 2px; }
+.tl-obj { background: #888; }
+.tl-fx { background: var(--accent); }
+.tl-snd { background: #2f6fd1; }
+.tl-snd.loop { background: #2e9e5b; height: 10px; width: 6px; }
+.tl-snd.stop { background: #111; }
+.tl-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #111; pointer-events: none; }
+.tl-legend { display: flex; gap: 14px; font-size: 12px; color: #555; padding: 4px 6px 2px; }
+.tl-legend .o { color: #888; } .tl-legend .f { color: var(--accent); } .tl-legend .s { color: #2f6fd1; }
+.queue { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
+.ytout { display: flex; gap: 10px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.ytout pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 14px; }
+
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; height: auto; }
   aside { max-height: 40vh; }

@@ -120,8 +120,25 @@ function writeScript(d, text) {
   fs.writeFileSync(path.join(d, name), text);
 }
 
-// ---- background jobs (build / render), one per project
+// ---- background jobs (build / render / short), one per project; renders also go through a queue
 const jobs = {};
+const queue = [];  // [{id, kind: 'render' | 'short'}], run one at a time
+const videoName = (id, kind) => (kind === 'short' ? `${id}_short.mp4` : `${id}.mp4`);
+const rendering = () => Object.values(jobs).some((j) => j.state === 'running' && j.kind !== 'build');
+function startRender(id, kind) {
+  const d = dirOf(id);
+  const tmp = path.join(OUT, `tmp_${videoName(id, kind)}`);
+  run(id, kind, [path.relative(ROOT, d), kind === 'short' ? '--short' : '--render', '--out', tmp]);
+}
+function nextInQueue() {
+  if (rendering() || !queue.length) return;
+  const q = queue.shift();
+  try {
+    startRender(q.id, q.kind);
+  } catch {
+    nextInQueue();
+  }
+}
 function run(id, kind, args) {
   const j = (jobs[id] = {kind, state: 'running', log: '', progress: 0, started: Date.now()});
   const p = spawn('python', ['autovid/autovid.py', ...args], {cwd: ROOT, env: {...process.env, PYTHONUTF8: '1'}, shell: false});
@@ -136,10 +153,11 @@ function run(id, kind, args) {
   p.on('close', (code) => {
     j.state = code === 0 ? 'done' : 'error';
     j.progress = code === 0 ? 100 : j.progress;
-    if (kind === 'render' && code === 0) {
-      const tmp = path.join(OUT, `tmp_${id}.mp4`);
-      if (fs.existsSync(tmp)) fs.renameSync(tmp, path.join(OUT, `${id}.mp4`));
+    if (kind !== 'build' && code === 0) {
+      const tmp = path.join(OUT, `tmp_${videoName(id, kind)}`);
+      if (fs.existsSync(tmp)) fs.renameSync(tmp, path.join(OUT, videoName(id, kind)));
     }
+    if (kind !== 'build') nextInQueue();
   });
 }
 
@@ -200,6 +218,7 @@ app.get('/api/projects/:id', wrap((req) => {
     config: readJson(path.join(d, 'config.json'), {}),
     hasPreview: fs.existsSync(path.join(ROOT, 'public', 'jobs', path.basename(d), 'props.json')),
     video: fs.existsSync(path.join(OUT, `${path.basename(d)}.mp4`)) ? `/videos/${path.basename(d)}.mp4?v=${Math.round(fs.statSync(path.join(OUT, `${path.basename(d)}.mp4`)).mtimeMs)}` : null,
+    short: fs.existsSync(path.join(OUT, `${path.basename(d)}_short.mp4`)) ? `/videos/${path.basename(d)}_short.mp4?v=${Math.round(fs.statSync(path.join(OUT, `${path.basename(d)}_short.mp4`)).mtimeMs)}` : null,
   };
 }));
 
@@ -255,12 +274,173 @@ app.post('/api/projects/:id/build', wrap((req) => {
   return {ok: true};
 }));
 
+// body {short: true} makes the 9:16 Short instead; if another video is rendering, it waits in the queue
 app.post('/api/projects/:id/render', wrap((req) => {
-  const d = dirOf(req.params.id);
-  const id = path.basename(d);
+  const id = path.basename(dirOf(req.params.id));
+  const kind = req.body.short ? 'short' : 'render';
   if (jobs[id]?.state === 'running') throw Object.assign(new Error('already working on this project'), {status: 409});
-  run(id, 'render', [path.relative(ROOT, d), '--render', '--out', path.join(OUT, `tmp_${id}.mp4`)]);
+  if (queue.some((q) => q.id === id && q.kind === kind)) return {queued: true};
+  queue.push({id, kind});
+  nextInQueue();
+  return {queued: !(jobs[id]?.state === 'running'), position: queue.findIndex((q) => q.id === id && q.kind === kind) + 1};
+}));
+
+app.get('/api/queue', wrap(() => ({
+  running: Object.entries(jobs).filter(([, j]) => j.state === 'running' && j.kind !== 'build').map(([id, j]) => ({id, kind: j.kind, progress: j.progress})),
+  waiting: queue,
+})));
+app.delete('/api/queue/:i', wrap((req) => {
+  queue.splice(Number(req.params.i), 1);
   return {ok: true};
+}));
+
+app.post('/api/projects/:id/duplicate', wrap((req) => {
+  const src = dirOf(req.params.id);
+  const id = slug(req.body.name);
+  if (!id) throw Object.assign(new Error('give the new project a name'), {status: 400});
+  const d = path.join(STORIES, id);
+  if (fs.existsSync(d)) throw Object.assign(new Error('a project with that name already exists'), {status: 400});
+  fs.mkdirSync(path.join(d, 'images'), {recursive: true});
+  const cfg = readJson(path.join(src, 'config.json'), {});
+  fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify(cfg, null, 1));
+  if (req.body.script) writeScript(d, readSource(src));
+  return {id};
+}));
+
+// ---- music: sfx/bgm/<mood>/<track>.mp3
+app.get('/api/music', wrap(() => {
+  const dir = path.join(SFX, 'bgm');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).sort().flatMap((mood) => fs.statSync(path.join(dir, mood)).isDirectory()
+    ? fs.readdirSync(path.join(dir, mood)).filter((f) => f.endsWith('.mp3')).sort().map((f) => ({file: `bgm/${mood}/${f}`, mood, name: f.slice(0, -4).replace(/_/g, ' ')}))
+    : []);
+}));
+
+// ---- script checker: everything that would silently go wrong in a build
+const KNOWN_FX = new Set(['shake', 'flash', 'boom', 'zoom', 'heartbeat', 'red', 'glitch', 'rewind', 'fade', 'dark', 'light', 'whole', 'subscribe', 'knock', 'label', 'pause', 'hook']);
+function checkScript(d) {
+  const text = readSource(d);
+  const out = [];
+  const add = (level, msg, line) => out.push({level, msg, line});
+  const lineOf = (i) => text.slice(0, i).split('\n').length;
+  // srt timing
+  const times = [...text.matchAll(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/g)].map((m) => ({
+    a: +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4] / 1000, b: +m[5] * 3600 + +m[6] * 60 + +m[7] + +m[8] / 1000, i: m.index}));
+  if (!times.length) add('error', 'No subtitle time lines found (00:00:00,000 --> 00:00:04,000).');
+  times.forEach((c, k) => {
+    if (c.b <= c.a) add('error', 'Subtitle ends before it starts.', lineOf(c.i));
+    else if (k && c.a < times[k - 1].b - 0.05) add('warn', 'Subtitle overlaps the one before it.', lineOf(c.i));
+  });
+  // tags
+  const objs = [];
+  const loops = {};  // name -> line of its last [amb]
+  let dark = null;
+  for (const m of text.matchAll(/\[([^\]]+)\]/g)) {
+    const body = m[1].trim();
+    const ln = lineOf(m.index);
+    const snd = body.match(/^(sfx|amb|amb-stop)\s*:\s*(\S+)(.*)$/i);
+    if (snd) {
+      const kind = snd[1].toLowerCase();
+      const name = path.basename(snd[2], '.mp3').toLowerCase();
+      if (kind === 'amb-stop') {
+        if (!loops[name]) add('warn', `[amb-stop:${snd[2]}] stops a loop that isn't playing.`, ln);
+        delete loops[name];
+        continue;
+      }
+      if (!fs.existsSync(path.join(SFX, snd[2]))) add('error', `Sound not found: ${snd[2]} (it will be skipped).`, ln);
+      for (const o of snd[3].trim().split(/\s+/).filter(Boolean))
+        if (!/^(vol=\d+(\.\d+)?|fade-?in|fade-?out|fade_in|fade_out|loop|x\d+)$/i.test(o)) add('warn', `Unknown sound option "${o}".`, ln);
+      if (kind === 'amb' || /\bloop\b/i.test(snd[3])) loops[name] = ln;
+      continue;
+    }
+    if (body.toLowerCase().startsWith('label')) continue;
+    for (const tok of body.split(/[,\s]+/).filter(Boolean)) {
+      const o = tok.match(/^(\d+)(?:[.-](\d+))?$/);
+      if (o) {
+        objs.push({n: +o[1], k: +(o[2] || 1), ln});
+        continue;
+      }
+      const name = tok.split(':')[0].toLowerCase();
+      if (!KNOWN_FX.has(name)) add('warn', `Unknown tag [${tok}] (it will be ignored).`, ln);
+      if (name === 'dark') dark = ln;
+      if (name === 'light') dark = null;
+    }
+  }
+  if (dark) add('warn', '[dark] is never turned off with a later [light], so the video stays dark to the end.', dark);
+  for (const [name, ln] of Object.entries(loops)) add('warn', `Loop "${name}" never gets an [amb-stop:${name}], so it plays to the end.`, ln);
+  // picture tags
+  const [rows, cols] = readJson(path.join(d, 'config.json'), {}).grid || [2, 3];
+  const K = rows * cols;
+  const seen = new Set();
+  let last = 0;
+  for (const o of objs) {
+    const g = (o.n - 1) * K + o.k;
+    if (o.k > K) add('error', `[${o.n}.${o.k}] doesn't exist: each image only has ${K} objects.`, o.ln);
+    if (seen.has(g)) add('warn', `[${o.n}.${o.k}] is used twice.`, o.ln);
+    else if (g < last) add('warn', `[${o.n}.${o.k}] comes after a later object; pictures will jump back.`, o.ln);
+    seen.add(g);
+    last = Math.max(last, g);
+  }
+  const imgs = new Set(images(d).map((i) => i.n));
+  const maxN = Math.max(0, ...objs.map((o) => o.n));
+  const skipped = [];
+  for (let n = 1; n <= maxN; n++) for (let k = 1; k <= K; k++) if (!seen.has((n - 1) * K + k)) skipped.push(`${n}.${k}`);
+  if (skipped.length) add('info', `No tag for ${skipped.length} object(s): ${skipped.slice(0, 12).join(', ')}${skipped.length > 12 ? '…' : ''}. They'll be timed automatically.`);
+  const missing = [...new Set(objs.map((o) => o.n))].filter((n) => !imgs.has(n));
+  if (missing.length) add('error', `Script uses image(s) ${missing.join(', ')} but they aren't uploaded yet.`);
+  const unused = [...imgs].filter((n) => n > maxN);
+  if (objs.length && unused.length) add('info', `Image(s) ${unused.join(', ')} are uploaded but the script never tags them.`);
+  if (!out.some((o) => o.level !== 'info')) add('ok', `Looks good: ${times.length} subtitles, ${objs.length} picture tags.`);
+  return out;
+}
+app.get('/api/projects/:id/check', wrap((req) => checkScript(dirOf(req.params.id))));
+
+// ---- sound suggestions: put a matching sound before keywords (at most one per subtitle)
+const SUGGEST = [
+  [/^(roar|roared|roars|roaring)$/, 'creatures/roar_beast.mp3', 50], [/^(growl|growled|growling|snarl|snarled)$/, 'creatures/growl_dragon.mp3', 40],
+  [/^(howl|howled|howling)$/, 'creatures/wolf_howling.mp3', 40], [/^(scream|screamed|screams|screaming|shriek|shrieked)$/, 'human/scream_in_pain.mp3', 45],
+  [/^(gasp|gasped)$/, 'human/female_astonished_gasp.mp3', 40], [/^(panting|breathing|breath)$/, 'human/male_scared_effort_breathing.mp3', 30],
+  [/^(gunshot|gunshots|gunfire|gunshot)$/, 'warfare/game_gun_shot.mp3', 50], [/^(explosion|exploded|explode|blast)$/, 'fight/explosion_hit.mp3', 55],
+  [/^(thunder)$/, 'weather/thunder_rumble.mp3', 45], [/^(rain|raining|downpour)$/, 'weather/rain_heavy_drops.mp3', 25],
+  [/^(knock|knocked|knocking|pounding)$/, 'bunker/door_knock.mp3', 45], [/^(slam|slammed)$/, 'bunker/slamming_a_door.mp3', 50],
+  [/^(door|hatch)$/, 'bunker/door_scary_open.mp3', 35], [/^(footsteps|steps)$/, 'human/footsteps_in_the_forest_ground.mp3', 30],
+  [/^(sprinted|sprinting|fled|raced)$/, 'human/running_forest.mp3', 35], [/^(heart|heartbeat)$/, 'human/fast_heartbeat.mp3', 35],
+  [/^(punch|punched|kicked|kick)$/, 'fight/punches_body.mp3', 45], [/^(sword|blade|slashed|slash)$/, 'fight/sword_slash.mp3', 40],
+  [/^(spear|stabbed|stab|pierced)$/, 'fight/sword_cutting_flesh.mp3', 40], [/^(blood|bleeding)$/, 'fight/blood_splash.mp3', 35],
+  [/^(bone|bones)$/, 'fight/bone_breaking_with_echo.mp3', 45], [/^(flames|campfire|blaze)$/, 'weather/fire_campfire.mp3', 25],
+  [/^(wind)$/, 'weather/wind_blowing.mp3', 20], [/^(splash|splashed|splashing)$/, 'weather/water_splash.mp3', 35],
+  [/^(alarm|siren)$/, 'bunker/classic_alarm.mp3', 30], [/^(radio|static)$/, 'bunker/radio_static_fx.mp3', 35],
+  [/^(glass|shattered|smashed)$/, 'human/glass_break_with_hammer_thud.mp3', 45], [/^(crash|crashed|collapsed)$/, 'fight/collapsing_structure.mp3', 50],
+];
+app.post('/api/projects/:id/suggest-sounds', wrap((req) => {
+  const text = String(req.body.text ?? readSource(dirOf(req.params.id)));
+  const rules = SUGGEST.filter(([, f]) => fs.existsSync(path.join(SFX, f)));
+  let added = 0;
+  let lastFile = '';
+  // one subtitle block at a time; skip blocks that already have a sound
+  const blocks = text.split(/(\n\s*\n)/);
+  for (let b = 0; b < blocks.length; b += 2) {
+    const blk = blocks[b];
+    if (/\[(sfx|amb)\s*:/i.test(blk)) continue;
+    const lines = blk.split('\n');
+    const ti = lines.findIndex((l) => l.includes('-->'));
+    if (ti < 0) continue;
+    let done = false;
+    for (let li = ti + 1; li < lines.length && !done; li++) {
+      lines[li] = lines[li].replace(/(\[[^\]]*\]|[A-Za-z']+)/g, (w) => {
+        if (done || w.startsWith('[')) return w;
+        const rule = rules.find(([re]) => re.test(w.toLowerCase()));
+        if (!rule || rule[1] === lastFile) return w;
+        done = true;
+        lastFile = rule[1];
+        added++;
+        return `[sfx:${rule[1]} vol=${rule[2]}]${w}`;
+      });
+    }
+    if (!done) lastFile = '';
+    blocks[b] = lines.join('\n');
+  }
+  return {text: blocks.join(''), added};
 }));
 
 app.get('/api/projects/:id/status', wrap((req) => jobs[slug(req.params.id)] || {state: 'idle', log: '', progress: 0}));

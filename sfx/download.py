@@ -23,7 +23,7 @@ def fetch(item):
         return 'skip'
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        req = urllib.request.Request(URL.format(info['id']), headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(info.get('url') or URL.format(info['id']), headers={'User-Agent': 'Mozilla/5.0'})
         data = urllib.request.urlopen(req, timeout=60).read()
     except Exception as e:
         print(f'  ! {rel}: {e}')
