@@ -16,6 +16,10 @@ const STORIES = path.join(ROOT, 'stories');
 const OUT = path.join(ROOT, 'out', 'studio');
 const NOTES = path.join(HERE, 'notes.md');
 const PORT = Number(process.env.PORT || 5173);
+// sound library: same rule as autovid (the repo's sfx/ once it has sounds, else ../sfx)
+const hasSounds = (d) => fs.existsSync(d) && fs.readdirSync(d, {withFileTypes: true}).some((e) =>
+  e.isDirectory() && fs.readdirSync(path.join(d, e.name)).some((f) => f.endsWith('.mp3')));
+const SFX = hasSounds(path.join(ROOT, 'sfx')) || !fs.existsSync(path.join(ROOT, '..', 'sfx')) ? path.join(ROOT, 'sfx') : path.join(ROOT, '..', 'sfx');
 fs.mkdirSync(STORIES, {recursive: true});
 fs.mkdirSync(OUT, {recursive: true});
 
@@ -130,6 +134,7 @@ app.use(express.json({limit: '10mb'}));
 app.use('/stories', express.static(STORIES));
 app.use('/jobs', express.static(path.join(ROOT, 'public', 'jobs'), {etag: false, maxAge: 0}));
 app.use('/videos', express.static(OUT));
+app.use('/sfx', express.static(SFX));
 const wrap = (fn) => (req, res) => {
   try {
     const r = fn(req, res);
@@ -150,6 +155,15 @@ app.get('/api/projects', wrap(() =>
       mtime: fs.statSync(d).mtimeMs,
     };
   }).sort((a, b) => b.mtime - a.mtime)));
+
+// every sound in the library: [{file: 'fight/sword_slash.mp3', folder, name}]
+app.get('/api/sfx', wrap(() => {
+  if (!fs.existsSync(SFX)) return [];
+  return fs.readdirSync(SFX, {withFileTypes: true}).filter((e) => e.isDirectory()).flatMap((e) =>
+    fs.readdirSync(path.join(SFX, e.name)).filter((f) => f.endsWith('.mp3')).sort().map((f) => ({
+      file: `${e.name}/${f}`, folder: e.name, name: f.slice(0, -4).replace(/_/g, ' '),
+    })));
+}));
 
 app.post('/api/projects', wrap((req) => {
   const id = slug(req.body.name);

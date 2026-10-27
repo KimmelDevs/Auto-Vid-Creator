@@ -42,7 +42,21 @@ const EFFECTS: {v: string; label: string}[] = [
   {v: 'subscribe', label: 'Subscribe pop-up'},
   {v: 'label', label: 'Text label...'},
 ];
+type Sound = {file: string; folder: string; name: string};
+// "sfx:fight/sword_slash.mp3 vol=40 x3" -> {kind, file, opts}
+const soundTag = (v: string) => {
+  const m = v.match(/^(sfx|amb|amb-stop)\s*:\s*(\S+)(.*)$/i);
+  return m ? {kind: m[1].toLowerCase(), file: m[2], opts: m[3].trim()} : null;
+};
+const soundName = (file: string) => file.split('/').pop()!.replace(/\.mp3$/, '').replace(/_/g, ' ');
 const fxLabel = (v: string) => {
+  const st = soundTag(v);
+  if (st) {
+    const vol = st.opts.match(/vol=(\d+)/)?.[1];
+    const rep = st.opts.match(/\bx(\d+)/)?.[1];
+    if (st.kind === 'amb-stop') return `⏹ stop ${soundName(st.file)}`;
+    return `${st.kind === 'amb' ? '🌲' : '🔊'} ${soundName(st.file)}${rep ? ` x${rep}` : ''}${vol ? ` ${vol}%` : ''}`;
+  }
   if (v.toLowerCase().startsWith('label')) return `Label: "${v.split(':').slice(1).join(':').trim()}"`;
   return EFFECTS.find((e) => e.v === v)?.label || v;
 };
@@ -210,6 +224,14 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
 const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => void; goScript: () => void}> = ({proj, reload, say, goScript}) => {
   const [fx, setFx] = useState<Record<string, string[]>>({});
   const [dirty, setDirty] = useState(false);
+  const [sounds, setSounds] = useState<Sound[]>([]);
+  const [soundFor, setSoundFor] = useState<string | null>(null);  // object key the sound picker is open for
+  useEffect(() => void api('/api/sfx').then(setSounds).catch(() => setSounds([])), []);
+  // background loops already used, so the picker can offer to stop them
+  const loops = useMemo(() => {
+    const all = [proj.script, ...Object.values(fx).flat()].join(' ');
+    return [...new Set([...all.matchAll(/amb:\s*(\S+\.mp3)/gi)].map((m) => m[1]))];
+  }, [proj.script, fx]);
   useEffect(() => {
     setFx(Object.fromEntries(proj.objects.map((o) => [o.key, o.fx])));
     setDirty(false);
@@ -273,6 +295,18 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
         <span className="spacer" />
         <button className="primary" onClick={save} disabled={!dirty}>{dirty ? 'Save effects' : 'Effects saved'}</button>
       </div>
+      {soundFor && (
+        <SoundPicker
+          target={soundFor}
+          sounds={sounds}
+          loops={loops}
+          onClose={() => setSoundFor(null)}
+          onAdd={(tag) => {
+            setObjFx(soundFor, [...(fx[soundFor] || []), tag]);
+            say(`Sound added to ${soundFor}. Press Save effects.`);
+          }}
+        />
+      )}
       {!proj.objects.length && (
         <div className="note">
           No picture tags in the script yet, so effects can't be attached. <a onClick={goScript}>Add a script first</a>.
@@ -312,7 +346,7 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
                   />
                   <div className="okey">{key}</div>
                   <div className="otext" title={o?.text}>{o ? o.text || '…' : 'not in script'}</div>
-                  {o && <FxPicker list={fx[key] || []} onChange={(l) => setObjFx(key, l)} />}
+                  {o && <FxPicker list={fx[key] || []} onChange={(l) => setObjFx(key, l)} onSound={() => setSoundFor(key)} />}
                 </div>
               );
             })}
@@ -323,10 +357,13 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
   );
 };
 
-const FxPicker: React.FC<{list: string[]; onChange: (l: string[]) => void}> = ({list, onChange}) => (
+const FxPicker: React.FC<{list: string[]; onChange: (l: string[]) => void; onSound: () => void}> = ({list, onChange, onSound}) => (
   <div className="fx">
     {list.map((v, i) => (
-      <span className="chip" key={i}>
+      <span className={'chip' + (soundTag(v) ? ' snd' : '')} key={i} title={v}>
+        {soundTag(v) && soundTag(v)!.kind !== 'amb-stop' && (
+          <button title="Preview" onClick={() => playSound(soundTag(v)!.file, Number(v.match(/vol=(\d+)/)?.[1] || 100))}>▶</button>
+        )}
         {fxLabel(v)}
         <button onClick={() => onChange(list.filter((_, j) => j !== i))}>×</button>
       </span>
@@ -351,8 +388,106 @@ const FxPicker: React.FC<{list: string[]; onChange: (l: string[]) => void}> = ({
         </option>
       ))}
     </select>
+    <button className="small" onClick={onSound}>+ sound</button>
   </div>
 );
+
+// one shared player, so starting a preview stops the last one
+const preview: HTMLAudioElement | null = typeof Audio !== 'undefined' ? new Audio() : null;
+const playSound = (file: string, vol = 100) => {
+  if (!preview) return;
+  if (!preview.paused && preview.dataset.file === file) return void preview.pause();
+  preview.src = `/sfx/${file.split('/').map(encodeURIComponent).join('/')}`;
+  preview.dataset.file = file;
+  preview.volume = Math.min(1, Math.max(0.05, vol / 100));
+  preview.play().catch(() => {});
+};
+
+const SoundPicker: React.FC<{target: string; sounds: Sound[]; loops: string[]; onAdd: (tag: string) => void; onClose: () => void}> = ({target, sounds, loops, onAdd, onClose}) => {
+  const [q, setQ] = useState('');
+  const [folder, setFolder] = useState('');
+  const [kind, setKind] = useState<'sfx' | 'amb' | 'stop'>('sfx');
+  const [vol, setVol] = useState(40);
+  const [fadeIn, setFadeIn] = useState(false);
+  const [fadeOut, setFadeOut] = useState(false);
+  const [times, setTimes] = useState(1);
+  const folders = useMemo(() => [...new Set(sounds.map((s) => s.folder))], [sounds]);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = sounds.filter((s) => (!folder || s.folder === folder) && words.every((w) => s.file.toLowerCase().includes(w)));
+  useEffect(() => setVol(kind === 'amb' ? 15 : 40), [kind]);
+  useEffect(() => () => preview?.pause(), []);
+  const tagFor = (file: string) => {
+    if (kind === 'stop') return `amb-stop:${file.split('/').pop()!.replace(/\.mp3$/, '')}`;
+    const opts = [`vol=${vol}`, kind === 'amb' && 'loop', (fadeIn || kind === 'amb') && 'fade-in', fadeOut && 'fade-out', times > 1 && `x${times}`];
+    return `${kind}:${file} ${opts.filter(Boolean).join(' ')}`;
+  };
+  const add = (file: string) => {
+    onAdd(tagFor(file));
+    onClose();
+  };
+  return (
+    <div className="modal" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="row">
+          <h3 style={{margin: 0}}>Add a sound to {target}</h3>
+          <span className="spacer" />
+          <button className="small" onClick={onClose}>Close</button>
+        </div>
+        <div className="row">
+          <div className="seg">
+            <button className={kind === 'sfx' ? 'on' : ''} onClick={() => setKind('sfx')}>Play once</button>
+            <button className={kind === 'amb' ? 'on' : ''} onClick={() => setKind('amb')}>Background loop</button>
+            <button className={kind === 'stop' ? 'on' : ''} onClick={() => setKind('stop')}>Stop a loop</button>
+          </div>
+        </div>
+        {kind === 'stop' ? (
+          <div className="slist">
+            {!loops.length && <p className="muted" style={{padding: 10}}>No background loops in this script yet.</p>}
+            {loops.map((f) => (
+              <div className="srow" key={f}>
+                <span className="grow">{soundName(f)}</span>
+                <button className="small primary" onClick={() => add(f)}>Stop here</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="row">
+              <input autoFocus placeholder="Search: roar, rain, door, scream…" value={q} onChange={(e) => setQ(e.target.value)} style={{flex: 1, minWidth: 180}} />
+              <select value={folder} onChange={(e) => setFolder(e.target.value)}>
+                <option value="">All folders</option>
+                {folders.map((f) => <option key={f}>{f}</option>)}
+              </select>
+            </div>
+            <div className="row">
+              <label>Volume <input type="range" min={5} max={100} value={vol} onChange={(e) => setVol(Number(e.target.value))} /> {vol}%</label>
+              {kind === 'sfx' && (
+                <>
+                  <label><input type="checkbox" checked={fadeIn} onChange={(e) => setFadeIn(e.target.checked)} /> fade in</label>
+                  <label><input type="checkbox" checked={fadeOut} onChange={(e) => setFadeOut(e.target.checked)} /> fade out</label>
+                  <label>Repeat <select value={times} onChange={(e) => setTimes(Number(e.target.value))}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n === 1 ? 'once' : `x${n}`}</option>)}</select></label>
+                </>
+              )}
+              {kind === 'amb' && <span className="muted">Loops until a later "Stop a loop", or the end of the video.</span>}
+            </div>
+            <div className="muted">{shown.length} sounds{shown.length > 300 ? ', showing the first 300. Search to narrow it down.' : ''}</div>
+            <div className="slist">
+              {!sounds.length && <p className="muted" style={{padding: 10}}>No sound library found. Run <code>python sfx/download.py</code> in the project folder.</p>}
+              {shown.slice(0, 300).map((s) => (
+                <div className="srow" key={s.file}>
+                  <button className="small" title="Preview" onClick={() => playSound(s.file, vol)}>▶</button>
+                  <span className="grow">{s.name}</span>
+                  <span className="muted">{s.folder}</span>
+                  <button className="small primary" onClick={() => add(s.file)}>Add</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // ---------- 3. play ----------
 const useJob = (id: string) => {

@@ -51,6 +51,8 @@ Write a tag right before the word where the sound should start. The path is rela
 [sfx:human/fast_heartbeat.mp3 vol=35 fade-out]   fades out at its end
 [amb:ambience/scary_woods_at_night.mp3 vol=15 loop fade-in]   background loop, keeps playing
 [amb-stop:scary_woods_at_night]          stops that loop here (fades out)
+[sfx:human/heartbeat_single.mp3 vol=45 x3]   plays 3 times back to back
+Easier: Images & Effects > + sound under an object (search, preview, add).
 ```
 
 - `vol=` is percent (100 = full). Background loops: 8-20. Hits: 30-60.

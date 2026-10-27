@@ -113,4 +113,6 @@ subscribe - subscribe pop-up
 [sfx:human/fast_heartbeat.mp3 vol=35 fade-out] - fade at the end
 [amb:ambience/scary_woods_at_night.mp3 vol=15 loop fade-in] - background loop
 [amb-stop:scary_woods_at_night] - stop that loop here
+[sfx:human/heartbeat_single.mp3 vol=45 x3]   plays 3 times back to back
+Easier: Images & Effects > + sound under an object (search, preview, add).
 vol is percent: loops 8-20, hits 30-60. Press Rebuild preview to hear changes.

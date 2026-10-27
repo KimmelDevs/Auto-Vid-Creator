@@ -113,6 +113,11 @@ Sound files live in `sfx/` (run `python sfx/download.py` once to get the 2,218 s
 | `[sfx:human/fast_heartbeat.mp3 vol=35 fade-out]` | `fade-in` / `fade-out` soften the start / end |
 | `[amb:ambience/night.mp3 vol=15 loop fade-in]` | Background loop until its `[amb-stop:...]` or the end |
 | `[amb-stop:night]` | Stop that loop here (by file name, no folder or `.mp3`) |
+| `[sfx:human/heartbeat_single.mp3 vol=45 x3]` | `xN` plays it N times back to back |
+
+Every file is first leveled to the same peak, so `vol` means the same for loud and quiet
+files. In the studio, use **+ sound** under any object in Images & Effects to search,
+preview and add sounds without typing tags.
 
 A missing file is skipped with `! sound not found`.
 

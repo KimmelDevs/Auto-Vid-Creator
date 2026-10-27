@@ -69,9 +69,9 @@ def parse_tag(body):
     body = body.strip()
     m = re.match(r'(sfx|amb|amb-stop)\s*:\s*(.+)$', body, re.I | re.S)
     if m:
-        # [sfx:fight/punch.mp3 vol=40 fade-in fade-out loop]  [amb:...]  [amb-stop:name]
+        # [sfx:fight/punch.mp3 vol=40 fade-in fade-out loop x3]  [amb:...]  [amb-stop:name]
         kind, rest = m[1].lower(), m[2].split()
-        snd = {'kind': kind, 'file': rest[0], 'vol': 100, 'fade_in': False, 'fade_out': False, 'loop': kind == 'amb'}
+        snd = {'kind': kind, 'file': rest[0], 'vol': 100, 'fade_in': False, 'fade_out': False, 'loop': kind == 'amb', 'times': 1}
         for opt in rest[1:]:
             k, _, v = opt.lower().partition('=')
             if k == 'vol':
@@ -82,6 +82,10 @@ def parse_tag(body):
                 snd['fade_out'] = True
             elif k == 'loop':
                 snd['loop'] = True
+            elif re.fullmatch(r'x\d+', k):
+                snd['times'] = max(1, int(k[1:]))
+            else:
+                print(f'  ! unknown sound option "{opt}" in [{body}] ignored')
         return [('sound', snd)]
     if body.lower().startswith('label'):
         return [('label', body.split(':', 1)[1].strip() if ':' in body else '')]
@@ -150,6 +154,19 @@ async def tts_all(items, cfg, cache):
     await asyncio.gather(*(one(it) for it in items))
 
 
+def peak_db(f, cache):
+    """Loudest point of a sound file in dB, remembered in .cache/sfx_peaks.json."""
+    store = cache / 'sfx_peaks.json'
+    peaks = json.loads(store.read_text()) if store.exists() else {}
+    key = f'{f}|{f.stat().st_mtime_ns}'
+    if key not in peaks:
+        err = subprocess.run([FF, '-i', str(f), '-af', 'volumedetect', '-f', 'null', '-'], capture_output=True, text=True).stderr
+        m = re.search(r'max_volume: ([-\d.]+) dB', err)
+        peaks[key] = float(m[1]) if m else 0.0
+        store.write_text(json.dumps(peaks))
+    return peaks[key]
+
+
 def mix_sounds(wav, out, sounds, end, sfx_dir, cache):
     """Lay [sfx]/[amb] sounds (list of (time, spec)) under the narration in wav, written to out.
     out is overwritten in place, never renamed: the studio player may hold it open."""
@@ -167,27 +184,32 @@ def mix_sounds(wav, out, sounds, end, sfx_dir, cache):
             print(f'  ! sound not found: {s["file"]}')
             continue
         d = duration(f)
-        if s['loop']:
-            later = [x for x in stops.get(f.stem.lower(), []) if x > t]
-            length = (min(later) if later else end) - t
-            inputs += ['-stream_loop', '-1', '-i', str(f)]
-            fi, fo = 1.5, 1.5
-        else:
-            length = min(d, end - t)
-            inputs += ['-i', str(f)]
-            fi, fo = 0.3, min(1.0, length / 2)
-        if length <= 0.05:
-            continue
-        n += 1
-        ms = int(t * 1000)
-        chain = [f'atrim=0:{length:.3f}', 'asetpts=PTS-STARTPTS', 'aformat=sample_rates=44100:channel_layouts=stereo',
-                 f'volume={s["vol"] / 100:.3f}']
-        if s['fade_in']:
-            chain.append(f'afade=t=in:d={min(fi, length / 2):.2f}')
-        if s['fade_out'] or s['loop']:
-            chain.append(f'afade=t=out:st={max(0, length - fo):.3f}:d={fo:.2f}')
-        chain.append(f'adelay={ms}|{ms}')
-        filters.append(f'[{n}:a]{",".join(chain)}[s{n}]')
+        # Mixkit files differ by up to 40 dB, so bring every file's peak to -1 dB first;
+        # then vol=100 is full level for any sound (capped at +30 dB for near-silent files)
+        level = min(30.0, -1.0 - peak_db(f, cache))
+        # xN repeats a one-shot back to back (e.g. three heartbeats)
+        for r in range(1 if s['loop'] else s.get('times', 1)):
+            at = t + r * (d + 0.1)
+            if s['loop']:
+                later = [x for x in stops.get(f.stem.lower(), []) if x > at]
+                length = (min(later) if later else end) - at
+                fi, fo = 1.5, 1.5
+            else:
+                length = min(d, end - at)
+                fi, fo = 0.3, min(1.0, length / 2)
+            if length <= 0.05:
+                continue  # before adding the input, so input numbers stay in step with [n:a]
+            inputs += (['-stream_loop', '-1'] if s['loop'] else []) + ['-i', str(f)]
+            n += 1
+            ms = int(at * 1000)
+            chain = [f'atrim=0:{length:.3f}', 'asetpts=PTS-STARTPTS', 'aformat=sample_rates=44100:channel_layouts=stereo',
+                     f'volume={level:.2f}dB', f'volume={s["vol"] / 100:.3f}']
+            if s['fade_in']:
+                chain.append(f'afade=t=in:d={min(fi, length / 2):.2f}')
+            if s['fade_out'] or s['loop']:
+                chain.append(f'afade=t=out:st={max(0, length - fo):.3f}:d={fo:.2f}')
+            chain.append(f'adelay={ms}|{ms}')
+            filters.append(f'[{n}:a]{",".join(chain)}[s{n}]')
     if not n:
         shutil.copyfile(wav, out)
         return 0
