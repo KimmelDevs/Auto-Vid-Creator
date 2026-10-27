@@ -483,7 +483,8 @@ def build(folder, name=None, render=False, out=None, short=False):
         start = max([it['at'] - 0.2 for it in items if it['at'] - 0.2 <= want] or [0.0])
         start = max(0.0, min(start, end - length))
         yt = cfg.get('youtube') or {}
-        title = (yt.get('title') or folder.name.replace('_', ' ')).replace('{n}', str(part_number(folder.name)))
+        series = yt.get('series') or re.sub(r'[_\d]+$', '', folder.name).replace('_', ' ').strip().title()
+        title = (yt.get('title') or '{series} (Part {n})').replace('{n}', str(part_number(folder.name))).replace('{series}', series)
         offset = hook['dur'] if hook else 0.0
         sprops = dest / 'short_props.json'
         sprops.write_text(json.dumps({'job': job, 'short': {'start': round(start + offset, 2), 'dur': round(length, 2), 'title': title}}))
