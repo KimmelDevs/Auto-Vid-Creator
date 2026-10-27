@@ -9,6 +9,10 @@ end card, and fires effects that you write directly in the SRT.
 
 You only make the images (ChatGPT). Everything else is automatic.
 
+**No command line?** Run `npm run dev` and open http://localhost:5173 for Story Maker Studio:
+create projects, paste the script, upload images, pick effects per object, preview in the
+Play tab and press Make video. Finished videos land in `out/studio/`.
+
 ## 1. Make a story folder
 
 ```
@@ -98,6 +102,20 @@ images and objects are spread evenly over the whole video.
 
 Unknown tags are skipped with a warning, so a typo never breaks a render.
 
+### Sound tags
+
+Sound files live in a `sfx` folder next to this project (`../sfx`, or set `"sfx_dir"` in
+`config.json`). Paths in the tag are relative to it. Sounds are mixed under the voice.
+
+| Tag | Meaning |
+|---|---|
+| `[sfx:fight/sword_slash.mp3 vol=40]` | Play once, starting at the next word. `vol` is percent |
+| `[sfx:human/fast_heartbeat.mp3 vol=35 fade-out]` | `fade-in` / `fade-out` soften the start / end |
+| `[amb:ambience/night.mp3 vol=15 loop fade-in]` | Background loop until its `[amb-stop:...]` or the end |
+| `[amb-stop:night]` | Stop that loop here (by file name, no folder or `.mp3`) |
+
+A missing file is skipped with `! sound not found`.
+
 ## 4. config.json (optional)
 
 ```json
@@ -106,6 +124,7 @@ Unknown tags are skipped with a warning, so a typo never breaks a render.
   "rate": "+6%",
   "pitch": "-2Hz",
   "grid": [2, 3],
+  "mode": "storyboard",
   "captions": true,
   "subscribe_at": 20,
   "end_card": {"text": "Part 2 coming next...", "sub": "Subscribe so you don't miss it!"},
@@ -118,6 +137,7 @@ Unknown tags are skipped with a warning, so a typo never breaks a render.
 | `voice` | Any edge-tts voice. Other male options: `en-US-GuyNeural`, `en-US-ChristopherNeural`, `en-US-BrianNeural`, `en-US-EricNeural`. List them all with `python -m edge_tts --list-voices` |
 | `rate`, `pitch` | Speech speed and pitch, e.g. `"+10%"`, `"-3Hz"` |
 | `grid` | `[rows, cols]` of objects per image, e.g. `[1, 3]` for 3 objects side by side |
+| `mode` | `"storyboard"`: camera travels across the whole page. `"focus"`: each object alone, cropped and centred |
 | `captions` | `false` to hide the caption box |
 | `subscribe_at` | Seconds into the video for the subscribe pop-up. `null` = off. A `[subscribe]` tag replaces it |
 | `end_card` | 5 s end screen after the story. `null` = none |
@@ -151,6 +171,8 @@ to a short folder and set the `REMOTION_BROWSER` environment variable (or `"brow
 ## Files
 
 - `autovid/autovid.py`: the pipeline (voice, timing, tags, job file, render)
+- `autovid/tag_srt.py`: one-off helper that added tags to the 60 Days bunker SRTs
+- `studio/`: Story Maker Studio (`npm run dev`): Express + Vite server and the React app
 - `src/Auto.tsx`: the Remotion video (camera, ink reveal, effects, captions)
 - `src/Subscribe.tsx`: the subscribe pop-up and end card
 - `scripts/stills.mjs`: render a few still frames of a job to check timing (`PROPS=public/jobs/<name>/props.json node scripts/stills.mjs 12 30.5`)

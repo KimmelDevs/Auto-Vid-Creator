@@ -3,13 +3,20 @@
   "private": true,
   "description": "SRT + numbered storyboard images -> narrated, animated doodle video (Remotion)",
   "scripts": {
+    "dev": "node studio/server.mjs",
+    "captions": "node scripts/srt2json.mjs",
     "studio": "remotion studio src/index.ts",
     "make": "python autovid/autovid.py"
   },
   "dependencies": {
-    "@remotion/cli": "4.0.300",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "remotion": "4.0.300"
+    "@remotion/cli": "^4.0.300",
+    "@remotion/player": "^4.0.300",
+    "@vitejs/plugin-react": "^4.7.0",
+    "express": "^4.22.3",
+    "multer": "^2.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.300",
+    "vite": "^5.4.21"
   }
 }

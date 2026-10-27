@@ -7,9 +7,9 @@ optional config.json. See README.md for the folder layout and every SRT tag.
 """
 import argparse
 import asyncio
-import os
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -28,11 +28,13 @@ DEFAULTS = {
     'rate': '+6%',
     'pitch': '-2Hz',
     'grid': [2, 3],              # rows, cols of objects in every image
+    'mode': 'storyboard',        # 'storyboard': camera travels the whole page; 'focus': each object alone, centred
     'captions': True,
     'subscribe_at': 20,          # seconds; null to disable (a [subscribe] tag also works)
     'end_card': {'text': 'To be continued...', 'sub': "Subscribe so you don't miss it!"},
     'auto_effects': False,       # add shakes/flashes from keywords when the SRT has no effect tags
-    'browser': os.environ.get('REMOTION_BROWSER'),  # optional path to chrome-headless-shell
+    'browser': os.environ.get('REMOTION_BROWSER', 'C:/Users/Admin/AppData/Local/Temp/rhs/chrome-headless-shell.exe'),  # used only if it exists
+    'sfx_dir': str(ROOT.parent / 'sfx'),  # [sfx:...] / [amb:...] paths are relative to this
 }
 EFFECTS = {'shake', 'flash', 'boom', 'zoom', 'heartbeat', 'red', 'glitch', 'rewind', 'fade', 'dark', 'light',
            'whole', 'subscribe', 'knock', 'label', 'pause'}
@@ -64,6 +66,22 @@ def parse_srt(path):
 def parse_tag(body):
     """'1.2, shake:big' -> [('obj', (1, 2)), ('shake', 'big')]"""
     body = body.strip()
+    m = re.match(r'(sfx|amb|amb-stop)\s*:\s*(.+)$', body, re.I | re.S)
+    if m:
+        # [sfx:fight/punch.mp3 vol=40 fade-in fade-out loop]  [amb:...]  [amb-stop:name]
+        kind, rest = m[1].lower(), m[2].split()
+        snd = {'kind': kind, 'file': rest[0], 'vol': 100, 'fade_in': False, 'fade_out': False, 'loop': kind == 'amb'}
+        for opt in rest[1:]:
+            k, _, v = opt.lower().partition('=')
+            if k == 'vol':
+                snd['vol'] = float(v or 100)
+            elif k in ('fade-in', 'fade_in', 'fadein'):
+                snd['fade_in'] = True
+            elif k in ('fade-out', 'fade_out', 'fadeout'):
+                snd['fade_out'] = True
+            elif k == 'loop':
+                snd['loop'] = True
+        return [('sound', snd)]
     if body.lower().startswith('label'):
         return [('label', body.split(':', 1)[1].strip() if ':' in body else '')]
     out = []
@@ -129,6 +147,56 @@ async def tts_all(items, cfg, cache):
             await edge_tts.Communicate(it['text'], cfg['voice'], rate=cfg['rate'], pitch=cfg['pitch']).save(str(it['mp3']))
 
     await asyncio.gather(*(one(it) for it in items))
+
+
+def mix_sounds(wav, out, sounds, end, sfx_dir, cache):
+    """Lay [sfx]/[amb] sounds (list of (time, spec)) under the narration in wav, written to out.
+    out is overwritten in place, never renamed: the studio player may hold it open."""
+    sfx_dir = Path(sfx_dir)
+    stops = {}  # amb name -> stop times
+    for t, s in sounds:
+        if s['kind'] == 'amb-stop':
+            stops.setdefault(Path(s['file']).stem.lower(), []).append(t)
+    inputs, filters, n = ['-i', str(wav)], [], 0
+    for t, s in sounds:
+        if s['kind'] == 'amb-stop':
+            continue
+        f = sfx_dir / s['file']
+        if not f.exists():
+            print(f'  ! sound not found: {s["file"]}')
+            continue
+        d = duration(f)
+        if s['loop']:
+            later = [x for x in stops.get(f.stem.lower(), []) if x > t]
+            length = (min(later) if later else end) - t
+            inputs += ['-stream_loop', '-1', '-i', str(f)]
+            fi, fo = 1.5, 1.5
+        else:
+            length = min(d, end - t)
+            inputs += ['-i', str(f)]
+            fi, fo = 0.3, min(1.0, length / 2)
+        if length <= 0.05:
+            continue
+        n += 1
+        ms = int(t * 1000)
+        chain = [f'atrim=0:{length:.3f}', 'asetpts=PTS-STARTPTS', 'aformat=sample_rates=44100:channel_layouts=stereo',
+                 f'volume={s["vol"] / 100:.3f}']
+        if s['fade_in']:
+            chain.append(f'afade=t=in:d={min(fi, length / 2):.2f}')
+        if s['fade_out'] or s['loop']:
+            chain.append(f'afade=t=out:st={max(0, length - fo):.3f}:d={fo:.2f}')
+        chain.append(f'adelay={ms}|{ms}')
+        filters.append(f'[{n}:a]{",".join(chain)}[s{n}]')
+    if not n:
+        shutil.copyfile(wav, out)
+        return 0
+    mix = '[0:a]' + ''.join(f'[s{i}]' for i in range(1, n + 1))
+    filters.append(f'{mix}amix=inputs={n + 1}:normalize=0:duration=first,alimiter=limit=0.9:level=0,atrim=0:{end}[out]')
+    fc = cache / 'sfx_filter.txt'
+    fc.write_text(';'.join(filters))
+    subprocess.run([FF, '-y', *inputs, '-filter_complex_script', str(fc), '-map', '[out]', '-ar', '44100', '-ac', '2', str(out)],
+                   check=True, capture_output=True)
+    return n
 
 
 def grid_boxes(path, rows, cols):
@@ -206,7 +274,7 @@ def build(folder, name=None, render=False, out=None):
     filters.append(f'{mix}amix=inputs={len(items)}:normalize=0,apad=whole_dur={end},atrim=0:{end},loudnorm=I=-16:TP=-1.5[out]')
     fc = cache / 'filter.txt'
     fc.write_text(';'.join(filters))
-    subprocess.run([FF, '-y', *inputs, '-filter_complex_script', str(fc), '-map', '[out]', '-ar', '44100', '-ac', '2', str(dest / 'voice.wav')],
+    subprocess.run([FF, '-y', *inputs, '-filter_complex_script', str(fc), '-map', '[out]', '-ar', '44100', '-ac', '2', str(cache / 'voice_raw.wav')],
                    check=True, capture_output=True)
 
     # actual time of every word, from where its sentence was placed
@@ -220,6 +288,10 @@ def build(folder, name=None, render=False, out=None):
             acc += L
     tag_time = lambda wi: wtime[wi] if wi < len(words) else end - 0.5  # noqa: E731
     sent_starts = [it['at'] for it in items]
+
+    # ---- sound effects and ambience, mixed under the narration
+    sounds = [(round(tag_time(wi), 2), arg) for wi, (kind, arg), _ in tags if kind == 'sound']
+    n_snd = mix_sounds(cache / 'voice_raw.wav', dest / 'voice.wav', sounds, end, cfg['sfx_dir'], cache)
 
     # ---- object timing: tagged objects are anchors, the rest are spread between anchors and snapped to sentences
     n_obj = len(imgs) * K
@@ -249,7 +321,7 @@ def build(folder, name=None, render=False, out=None):
     # ---- effects
     fx = []
     for wi, (kind, arg), _ in tags:
-        if kind in ('obj', 'pause'):
+        if kind in ('obj', 'pause', 'sound'):
             continue
         t = round(tag_time(wi), 2)
         if kind == 'knock':
@@ -283,11 +355,12 @@ def build(folder, name=None, render=False, out=None):
         'captions': bool(cfg['captions']),
         'endCard': cfg['end_card'],
         'subscribeAt': None if has_sub_tag else cfg['subscribe_at'],
+        'mode': cfg['mode'],
     }
     props = dest / 'props.json'
     props.write_text(json.dumps({'job': job}))
     late = max(it['at'] - it['start'] for it in items)
-    print(f'  voice {len(items)} sentences, ends {end:.1f}s (max drift {late:.1f}s); {len(known)} tagged objects; {len(fx)} effects')
+    print(f'  voice {len(items)} sentences, ends {end:.1f}s (max drift {late:.1f}s); {len(known)} tagged objects; {len(fx)} effects; {n_snd} sounds')
 
     if render:
         out = Path(out or (folder / f'{name}.mp4')).resolve()

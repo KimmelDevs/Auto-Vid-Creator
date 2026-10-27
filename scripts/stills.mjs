@@ -5,7 +5,7 @@ import fs from 'node:fs';
 const comp = process.env.COMP || 'Auto';
 const inputProps = process.env.PROPS ? JSON.parse(fs.readFileSync(process.env.PROPS, 'utf8')) : {captions: true};
 const secs = process.argv.slice(2).map(Number);
-const browserExecutable = process.env.REMOTION_BROWSER || null;
+const browserExecutable = process.env.REMOTION_BROWSER || 'C:/Users/Admin/AppData/Local/Temp/rhs/chrome-headless-shell.exe';
 const serveUrl = await bundle({entryPoint: path.resolve('src/index.ts')});
 const composition = await selectComposition({serveUrl, browserExecutable, id: comp, inputProps});
 for (const s of secs) {

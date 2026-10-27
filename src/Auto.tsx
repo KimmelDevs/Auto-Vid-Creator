@@ -27,6 +27,8 @@ export type Job = {
   captions: boolean;
   endCard?: {text: string; sub?: string} | null;
   subscribeAt?: number | null;
+  // 'storyboard' (default): camera travels across the whole page; 'focus': each object alone, centred
+  mode?: 'storyboard' | 'focus';
 };
 
 const AMP: Record<string, number> = {small: 8, normal: 18, big: 34};
@@ -108,6 +110,65 @@ const PanelView: React.FC<{p: Panel; t: number; end: number; job: Job; id: strin
         <image href={staticFile(`${job.dir}/${p.src}`)} x={0} y={0} width={1920} height={1080} mask={`url(#${maskId})`} preserveAspectRatio="none" />
       </g>
     </svg>
+  );
+};
+
+// "focus" mode: every object is cut out of its storyboard and shown alone, centred on white.
+// The previous object slides away while the next one is inked in.
+type Shot = {src: string; box: number[]; start: number; pi: number};
+const shotsOf = (job: Job): Shot[] =>
+  job.panels.flatMap((p, pi) => p.boxes.map((box, i) => ({src: p.src, box, start: p.starts[i] ?? Infinity, pi}))).filter((s) => s.start !== Infinity);
+
+const ShotView: React.FC<{s: Shot; t: number; job: Job; id: string; whole: number; zoom: number}> = ({s, t, job, id, whole, zoom}) => {
+  // a whole-page pull-back blends the crop rectangle out to the full image
+  const [bx, by, bw, bh] = s.box.map((v, i) => v + ([0, 0, 1920, 1080][i] - v) * whole);
+  const fit = Math.min(1600 / bw, (job.captions ? 800 : 940) / bh) * zoom;
+  const w = bw * fit;
+  const h = bh * fit;
+  const top = job.captions ? 470 : 540;
+  const r = tw(t, s.start, s.start + 1.1, 0, 1, EOUT);
+  const step = Math.floor(t * 8);
+  const jr = (rnd(step) - 0.5) * 0.35;
+  return (
+    <svg viewBox="0 0 1920 1080" width={1920} height={1080} style={{position: 'absolute'}}>
+      <defs>
+        <mask id={id}>
+          <circle cx={bx + bw / 2} cy={by + bh / 2} r={(Math.hypot(bw, bh) / 2 + 30) * r} fill="#fff" />
+        </mask>
+      </defs>
+      <g transform={`rotate(${jr} 960 ${top})`}>
+        <svg x={960 - w / 2} y={top - h / 2} width={w} height={h} viewBox={`${bx} ${by} ${bw} ${bh}`} preserveAspectRatio="xMidYMid meet">
+          <image href={staticFile(`${job.dir}/${s.src}`)} x={0} y={0} width={1920} height={1080} mask={`url(#${id})`} preserveAspectRatio="none" />
+        </svg>
+      </g>
+    </svg>
+  );
+};
+
+const FocusView: React.FC<{t: number; job: Job}> = ({t, job}) => {
+  const shots = shotsOf(job);
+  const i = shots.reduce((acc, s, k) => (t >= s.start ? k : acc), 0);
+  const cur = shots[i];
+  const next = shots[i + 1]?.start ?? job.end;
+  const prev = i > 0 ? shots[i - 1] : null;
+  const out = prev ? tw(t, cur.start, cur.start + 0.55) : 1;
+  const wholeTag = job.fx.find((f) => f.type === 'whole' && f.t >= cur.start && f.t < next && t >= f.t);
+  const whole = wholeTag ? tw(t, wholeTag.t, wholeTag.t + 1.2) : 0;
+  let zoom = 1 + 0.05 * tw(t, cur.start, next, 0, 1, (x) => x);
+  for (const f of active(job.fx, 'zoom', t, 0.9)) zoom *= 1 + 0.18 * Math.sin(Math.PI * Math.min(1, (t - f.t) / 0.9));
+  for (const f of active(job.fx, 'boom', t, 0.6)) zoom *= 1 + 0.12 * (1 - (t - f.t) / 0.6);
+  for (const f of active(job.fx, 'heartbeat', t, 3)) zoom *= 1 + 0.03 * Math.max(0, Math.sin((t - f.t) * 2 * Math.PI * 1.2)) ** 6;
+  const [sx, sy] = shakeAt(t, job.fx);
+  const jx = (rnd(Math.floor(t * 8) + 99) - 0.5) * 2.5;
+  return (
+    <AbsoluteFill style={{background: '#fff', transform: `translate(${sx + jx}px, ${sy}px)`}}>
+      {prev && out < 1 ? (
+        <AbsoluteFill style={{transform: `translateX(${-out * 520}px) scale(${1 - 0.08 * out})`, opacity: 1 - out}}>
+          <ShotView s={{...prev, start: -10}} t={t} job={job} id={`f${i - 1}`} whole={0} zoom={1.05} />
+        </AbsoluteFill>
+      ) : null}
+      <ShotView s={cur} t={t} job={job} id={`f${i}`} whole={whole} zoom={zoom} />
+    </AbsoluteFill>
   );
 };
 
@@ -200,14 +261,20 @@ export const Auto: React.FC<{job: Job}> = ({job}) => {
       <div style={{position: 'absolute', width: 1, height: 1, overflow: 'hidden', opacity: 0}}>
         {[prevP, p].filter(Boolean).map((q) => <Img key={q!.src} src={staticFile(`${job.dir}/${q!.src}`)} />)}
       </div>
-      {prevP && slide < 1 ? (
-        <div style={{position: 'absolute', inset: 0, transform: `translateX(${-slide * 1920 * 0.35}px)`, opacity: 1 - slide}}>
-          <PanelView p={prevP} t={t} end={p.starts[0]} job={job} id={`a${pi - 1}`} />
-        </div>
-      ) : null}
-      <div style={{position: 'absolute', inset: 0, transform: `translateX(${(1 - slide) * 1920}px)`, boxShadow: slide < 1 ? '-30px 0 60px rgba(0,0,0,0.25)' : undefined, background: '#fff'}}>
-        <PanelView p={p} t={t} end={end} job={job} id={`a${pi}`} />
-      </div>
+      {job.mode === 'focus' ? (
+        <FocusView t={t} job={job} />
+      ) : (
+        <>
+          {prevP && slide < 1 ? (
+            <div style={{position: 'absolute', inset: 0, transform: `translateX(${-slide * 1920 * 0.35}px)`, opacity: 1 - slide}}>
+              <PanelView p={prevP} t={t} end={p.starts[0]} job={job} id={`a${pi - 1}`} />
+            </div>
+          ) : null}
+          <div style={{position: 'absolute', inset: 0, transform: `translateX(${(1 - slide) * 1920}px)`, boxShadow: slide < 1 ? '-30px 0 60px rgba(0,0,0,0.25)' : undefined, background: '#fff'}}>
+            <PanelView p={p} t={t} end={end} job={job} id={`a${pi}`} />
+          </div>
+        </>
+      )}
       <Overlays t={t} job={job} />
       {job.captions ? <Captions t={t} voice={job.voice} /> : null}
       {subs.map((s) => (

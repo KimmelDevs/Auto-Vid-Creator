@@ -4,3 +4,5 @@ out/
 *.mp4
 .cache/
 __pycache__/
+studio/dev.log
+*.bak.py
