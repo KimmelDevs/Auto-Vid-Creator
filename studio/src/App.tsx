@@ -99,7 +99,8 @@ export const App: React.FC = () => {
   const loadList = useCallback(() => api('/api/projects').then(setProjects).catch((e) => say(e.message)), []);
   const loadProj = useCallback(() => {
     if (!current || current === '__notes') return setProj(null);
-    api(`/api/projects/${current}`).then(setProj).catch((e) => {
+    // the editor works with \n line ends only (a textarea drops \r anyway)
+    api(`/api/projects/${current}`).then((p) => setProj({...p, script: p.script.replace(/\r/g, '')})).catch((e) => {
       say(e.message);
       setProj(null);
     });
@@ -247,6 +248,7 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
   const save = async (t = text) => {
     await api(`/api/projects/${proj.id}/script`, {method: 'PUT', body: {text: t}});
     say('Script saved');
+    setBase(null);
     reload();
     loadVersions();
   };
@@ -265,8 +267,35 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
   const suggest = async () => {
     const r = await api(`/api/projects/${proj.id}/suggest-sounds`, {body: {text}});
     if (!r.added) return say('No new sound spots found.');
+    if (base === null) setBase(text);
     edit(r.text, false);
-    say(`Added ${r.added} sounds. Look them over, then Save (Undo removes them all).`);
+    say(`Added ${r.added} sounds, shown in green. Look them over, then Save (Undo removes them all).`);
+  };
+  // text before "Suggest sounds", until the next save: sound tags not in it are new and shown in green
+  const [base, setBase] = useState<string | null>(null);
+  const marks = useMemo(() => {
+    if (base === null) return [];
+    const left: Record<string, number> = {};
+    for (const m of base.matchAll(/\[(?:sfx|amb):[^\]]*\]/g)) left[m[0]] = (left[m[0]] || 0) + 1;
+    const out: [number, number][] = [];
+    for (const m of text.matchAll(/\[(?:sfx|amb):[^\]]*\]/g)) {
+      if (left[m[0]]) left[m[0]]--;
+      else out.push([m.index!, m.index! + m[0].length]);
+    }
+    return out;
+  }, [base, text]);
+  const back = useRef<HTMLDivElement>(null);
+  const syncScroll = () => {
+    if (back.current && ta.current) back.current.scrollTop = ta.current.scrollTop;
+  };
+  const nextMark = () => {
+    if (!ta.current || !marks.length) return;
+    const pos = ta.current.selectionEnd;
+    const [a, b] = marks.find(([x]) => x > pos) || marks[0];
+    ta.current.focus();
+    ta.current.setSelectionRange(a, b);
+    ta.current.scrollTop = Math.max(0, (text.slice(0, a).split('\n').length - 6) * 19.5);
+    syncScroll();
   };
   const ta = useRef<HTMLTextAreaElement>(null);
   const goLine = (line?: number) => {
@@ -307,7 +336,26 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
             <button className="small ghost" onClick={() => setProblems(null)}>Hide</button>
           </div>
         )}
-        <textarea ref={ta} className="script" value={text} onChange={(e) => edit(e.target.value)} onKeyDown={keys} spellCheck={false} placeholder="Paste or upload your SRT here" />
+        {marks.length > 0 && (
+          <div className="row">
+            <span className="newsnd">{marks.length} new sound{marks.length > 1 ? 's' : ''} in green</span>
+            <button className="small" onClick={nextMark}>Next new sound ↓</button>
+            <span className="muted">Delete any you don't want, then Save. Green goes away after saving.</span>
+          </div>
+        )}
+        <div className="editor">
+          <div className="backdrop script" ref={back} aria-hidden>
+            {marks.length
+              ? marks.reduce<React.ReactNode[]>((acc, [a, b], i) => {
+                  const from = i ? marks[i - 1][1] : 0;
+                  acc.push(text.slice(from, a), <mark key={i}>{text.slice(a, b)}</mark>);
+                  if (i === marks.length - 1) acc.push(text.slice(b) + '\n');
+                  return acc;
+                }, [])
+              : null}
+          </div>
+          <textarea ref={ta} className="script" value={text} onChange={(e) => edit(e.target.value)} onKeyDown={keys} onScroll={syncScroll} spellCheck={false} placeholder="Paste or upload your SRT here" />
+        </div>
       </div>
       <div className="help">
         <h3>How the script works</h3>
