@@ -104,8 +104,8 @@ Unknown tags are skipped with a warning, so a typo never breaks a render.
 
 ### Sound tags
 
-Sound files live in a `sfx` folder next to this project (`../sfx`, or set `"sfx_dir"` in
-`config.json`). Paths in the tag are relative to it. Sounds are mixed under the voice.
+Sound files live in `sfx/` (run `python sfx/download.py` once to get the 2,218 sounds), or in a
+`sfx` folder next to this project, or wherever `"sfx_dir"` in `config.json` points. Paths in the tag are relative to it. Sounds are mixed under the voice.
 
 | Tag | Meaning |
 |---|---|

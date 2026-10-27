@@ -34,7 +34,8 @@ DEFAULTS = {
     'end_card': {'text': 'To be continued...', 'sub': "Subscribe so you don't miss it!"},
     'auto_effects': False,       # add shakes/flashes from keywords when the SRT has no effect tags
     'browser': os.environ.get('REMOTION_BROWSER', 'C:/Users/Admin/AppData/Local/Temp/rhs/chrome-headless-shell.exe'),  # used only if it exists
-    'sfx_dir': str(ROOT.parent / 'sfx'),  # [sfx:...] / [amb:...] paths are relative to this
+    # [sfx:...] / [amb:...] paths are relative to this: the repo's sfx/ once downloaded, else ../sfx
+    'sfx_dir': str(ROOT / 'sfx' if any((ROOT / 'sfx').glob('*/*.mp3')) or not (ROOT.parent / 'sfx').exists() else ROOT.parent / 'sfx'),
 }
 EFFECTS = {'shake', 'flash', 'boom', 'zoom', 'heartbeat', 'red', 'glitch', 'rewind', 'fade', 'dark', 'light',
            'whole', 'subscribe', 'knock', 'label', 'pause'}
