@@ -367,8 +367,8 @@ const KineticView: React.FC<{t: number; job: Job}> = ({t, job}) => {
   };
   return (
     <AbsoluteFill style={{background: 'radial-gradient(ellipse at 50% 45%, #1d1e26 0%, #0b0b0e 70%)'}}>
-      {/* film grain */}
-      <AbsoluteFill style={{opacity: 0.07, backgroundImage: `repeating-linear-gradient(${(Math.floor(t * 12) * 37) % 180}deg, #fff 0 1px, transparent 1px 3px)`}} />
+      {/* fine texture; kept still, because grain that changes every frame makes files huge */}
+      <AbsoluteFill style={{opacity: 0.05, backgroundImage: 'repeating-linear-gradient(37deg, #fff 0 1px, transparent 1px 3px)'}} />
       <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', padding: '0 150px', transform: `translate(${sx}px, ${sy}px) scale(${push})`}}>
         {c ? (
           <div style={{textAlign: 'center', fontFamily: '"Segoe UI Black", "Segoe UI", Arial, sans-serif', fontWeight: 900, fontSize: 104, lineHeight: 1.18, letterSpacing: -1}}>
