@@ -38,6 +38,8 @@ DEFAULTS = {
     'music_vol': 15,             # percent
     'hook': False,               # open with a dramatic line from later in the video, then rewind to the start
     'short_len': 55,             # seconds, for --short (vertical 9:16 clip)
+    'theme': 'light',            # without images: 'light' captions on white, or 'dark' kinetic type
+    'emphasis': [],              # dark theme: words shown in red
     'browser': os.environ.get('REMOTION_BROWSER', 'C:/Users/Admin/AppData/Local/Temp/rhs/chrome-headless-shell.exe'),  # used only if it exists
     # [sfx:...] / [amb:...] paths are relative to this: the repo's sfx/ once downloaded, else ../sfx
     'sfx_dir': str(ROOT / 'sfx' if any((ROOT / 'sfx').glob('*/*.mp3')) or not (ROOT.parent / 'sfx').exists() else ROOT.parent / 'sfx'),
@@ -482,6 +484,8 @@ def build(folder, name=None, render=False, out=None, short=False):
         'endCard': cfg['end_card'],
         'subscribeAt': None if has_sub_tag else cfg['subscribe_at'],
         'mode': cfg['mode'],
+        'theme': cfg.get('theme', 'light'),
+        'emphasis': cfg.get('emphasis', []),
     }
     props = dest / 'props.json'
     props.write_text(json.dumps({'job': job}))

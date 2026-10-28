@@ -36,6 +36,10 @@ export type Job = {
   subscribeAt?: number | null;
   // 'storyboard' (default): camera travels across the whole page; 'focus': each object alone, centred
   mode?: 'storyboard' | 'focus';
+  // look of a project without images: 'light' (black words on white) or 'dark' (kinetic type on black)
+  theme?: 'light' | 'dark';
+  // words to colour red in the dark look (numbers and colour names are coloured automatically)
+  emphasis?: string[];
 };
 
 const AMP: Record<string, number> = {small: 8, normal: 18, big: 34};
@@ -188,7 +192,7 @@ export const captionAt = (t: number, voice: Line[], style: Job['captionStyle']) 
   const cur = Math.max(0, c.wt.reduce((acc, w, i) => (t >= c.at + w - 0.03 ? i : acc), 0));
   const per = words.length <= 9 ? words.length : Math.ceil(words.length / Math.ceil(words.length / 7));
   const from = Math.floor(cur / per) * per;
-  return {words: words.slice(from, from + per), active: cur - from};
+  return {words: words.slice(from, from + per), active: cur - from, starts: c.wt.slice(from, from + per).map((w) => c.at + w)};
 };
 
 export const CaptionWords: React.FC<{words: string[]; active: number; size: number}> = ({words, active, size}) => (
@@ -343,7 +347,61 @@ const Main: React.FC<{job: Job}> = ({job}) => {
 };
 
 // no images yet: big centred word captions on white, so a script can be listened to (and read along)
+const WORD_COLORS: Record<string, string> = {red: '#ff3b3b', green: '#3ddc84', pink: '#ff6ec7', blue: '#4da3ff', yellow: '#ffd23f', orange: '#ff9f43'};
+
+// dark kinetic type: each word punches in as it's spoken; key words are coloured
+const KineticView: React.FC<{t: number; job: Job}> = ({t, job}) => {
+  const c = captionAt(t, job.voice, 'words');
+  const [sx, sy] = shakeAt(t, job.fx);
+  const emph = new Set((job.emphasis || []).map((w) => w.toLowerCase()));
+  let push = 1 + 0.03 * Math.sin(t * 0.25);
+  for (const f of active(job.fx, 'zoom', t, 0.9)) push *= 1 + 0.12 * Math.sin(Math.PI * Math.min(1, (t - f.t) / 0.9));
+  for (const f of active(job.fx, 'boom', t, 0.6)) push *= 1 + 0.1 * (1 - (t - f.t) / 0.6);
+  for (const f of active(job.fx, 'heartbeat', t, 3)) push *= 1 + 0.04 * Math.max(0, Math.sin((t - f.t) * 2 * Math.PI * 1.2)) ** 6;
+  const colorOf = (w: string) => {
+    const k = w.toLowerCase().replace(/[^a-z0-9%-]/g, '');
+    if (WORD_COLORS[k]) return WORD_COLORS[k];
+    if (/\d/.test(k)) return '#ffd23f';
+    if (emph.has(k)) return '#ff3b3b';
+    return '#f4f4f4';
+  };
+  return (
+    <AbsoluteFill style={{background: 'radial-gradient(ellipse at 50% 45%, #1d1e26 0%, #0b0b0e 70%)'}}>
+      {/* film grain */}
+      <AbsoluteFill style={{opacity: 0.07, backgroundImage: `repeating-linear-gradient(${(Math.floor(t * 12) * 37) % 180}deg, #fff 0 1px, transparent 1px 3px)`}} />
+      <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', padding: '0 150px', transform: `translate(${sx}px, ${sy}px) scale(${push})`}}>
+        {c ? (
+          <div style={{textAlign: 'center', fontFamily: '"Segoe UI Black", "Segoe UI", Arial, sans-serif', fontWeight: 900, fontSize: 104, lineHeight: 1.18, letterSpacing: -1}}>
+            {c.words.map((w, i) => {
+              const st = c.starts?.[i] ?? 0;
+              const k = tw(t, st - 0.04, st + 0.16, 0, 1, EOUT);
+              const col = colorOf(w);
+              return (
+                <span key={i} style={{
+                  display: 'inline-block', margin: '0 14px', color: col, opacity: k,
+                  transform: `translateY(${(1 - k) * 40}px) scale(${0.7 + 0.3 * k + (i === c.active ? 0.06 : 0)})`,
+                  textShadow: i === c.active && col === '#f4f4f4' ? '0 0 30px rgba(255,255,255,0.35)' : col !== '#f4f4f4' ? `0 0 28px ${col}66` : 'none',
+                }}>
+                  {w}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+      </AbsoluteFill>
+      <AbsoluteFill style={{boxShadow: 'inset 0 0 300px rgba(0,0,0,0.8)'}} />
+      <Overlays t={t} job={job} />
+      {job.endCard ? (
+        <Sequence from={Math.round(job.end * FPS)}>
+          <EndCard text={job.endCard.text} sub={job.endCard.sub} />
+        </Sequence>
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
 const ListenView: React.FC<{t: number; job: Job}> = ({t, job}) => {
+  if (job.theme === 'dark') return <KineticView t={t} job={job} />;
   const c = captionAt(t, job.voice, job.captionStyle);
   const [sx, sy] = shakeAt(t, job.fx);
   return (

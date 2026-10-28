@@ -1026,6 +1026,7 @@ const Settings: React.FC<{proj: Project; reload: () => void; say: (m: string) =>
     captions: c.captions ?? true,
     subscribe_at: c.subscribe_at ?? 20,
     caption_style: c.caption_style || 'words',
+    theme: c.theme || 'light',
     music: c.music || '',
     music_vol: c.music_vol ?? 15,
     hook: !!c.hook,
@@ -1043,6 +1044,7 @@ const Settings: React.FC<{proj: Project; reload: () => void; say: (m: string) =>
         pitch: v.pitch,
         captions: v.captions,
         caption_style: v.caption_style,
+        theme: v.theme,
         music: v.music || null,
         music_vol: Number(v.music_vol) || 15,
         hook: v.hook,
@@ -1084,6 +1086,13 @@ const Settings: React.FC<{proj: Project; reload: () => void; say: (m: string) =>
         <select value={v.caption_style} onChange={(e) => set('caption_style', e.target.value)}>
           <option value="words">Word by word (highlights each word as it's spoken)</option>
           <option value="line">Whole line</option>
+        </select>
+      </label>
+      <label>
+        Look when there are no images
+        <select value={v.theme} onChange={(e) => set('theme', e.target.value)}>
+          <option value="light">Black captions on white</option>
+          <option value="dark">Dark kinetic text (words punch in, key words coloured)</option>
         </select>
       </label>
       <MusicPick value={v.music} vol={Number(v.music_vol)} onChange={(m) => set('music', m)} onVol={(n) => set('music_vol', n)} />
