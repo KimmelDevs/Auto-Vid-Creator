@@ -457,7 +457,8 @@ def build(folder, name=None, render=False, out=None, short=False):
     for wi, (kind, arg), _ in tags:
         if kind != 'bg' or not arg:
             continue
-        f = folder / 'broll' / arg
+        # "broll_dir" in config.json lets several projects (e.g. language versions) share one photo folder
+        f = (folder / cfg['broll_dir'] if cfg.get('broll_dir') else folder / 'broll') / arg
         if not f.exists():
             print(f'  ! background photo not found: broll/{arg}')
             continue
