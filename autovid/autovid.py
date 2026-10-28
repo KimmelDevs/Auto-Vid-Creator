@@ -151,13 +151,23 @@ def duration(path):
 
 
 async def tts_all(items, cfg, cache):
-    sem = asyncio.Semaphore(6)
+    sem = asyncio.Semaphore(4)
 
     async def one(it):
         if it['mp3'].exists() and it['mp3'].stat().st_size > 0:
             return
         async with sem:
-            await edge_tts.Communicate(it['text'], cfg['voice'], rate=cfg['rate'], pitch=cfg['pitch']).save(str(it['mp3']))
+            # the free voice service sometimes drops a request ("No audio was received"); try again with a pause
+            for attempt in range(5):
+                try:
+                    await edge_tts.Communicate(it['text'], cfg['voice'], rate=cfg['rate'], pitch=cfg['pitch']).save(str(it['mp3']))
+                    return
+                except Exception as e:
+                    it['mp3'].unlink(missing_ok=True)
+                    if attempt == 4:
+                        raise RuntimeError(f'voice failed 5 times for: "{it["text"][:80]}" ({e})') from e
+                    print(f'  voice hiccup, retrying ({attempt + 1}/4): {it["text"][:50]}', flush=True)
+                    await asyncio.sleep(2 + attempt * 3)
 
     await asyncio.gather(*(one(it) for it in items))
 
