@@ -40,6 +40,8 @@ export type Job = {
   theme?: 'light' | 'dark';
   // words to colour red in the dark look (numbers and colour names are coloured automatically)
   emphasis?: string[];
+  // full-screen photos switching at their times, with slow zoom/pan (Ken Burns); used when there are no grid images
+  bg?: {t: number; src: string}[];
 };
 
 const AMP: Record<string, number> = {small: 8, normal: 18, big: 34};
@@ -304,7 +306,7 @@ const f2 = (job: Job, type: string) => (type === 'red' ? 3 : 1);
 const Main: React.FC<{job: Job}> = ({job}) => {
   const t = useCurrentFrame() / FPS;
   const P = job.panels;
-  if (!P.length) return <ListenView t={t} job={job} />;
+  if (!P.length) return job.bg?.length ? <BrollView t={t} job={job} /> : <ListenView t={t} job={job} />;
   let pi = P.findIndex((p, i) => t >= p.starts[0] && (i === P.length - 1 || t < P[i + 1].starts[0]));
   if (pi < 0) pi = 0;
   const p = P[pi];
@@ -350,7 +352,44 @@ const Main: React.FC<{job: Job}> = ({job}) => {
 const WORD_COLORS: Record<string, string> = {red: '#ff3b3b', green: '#3ddc84', pink: '#ff6ec7', blue: '#4da3ff', yellow: '#ffd23f', orange: '#ff9f43'};
 
 // dark kinetic type: each word punches in as it's spoken; key words are coloured
-const KineticView: React.FC<{t: number; job: Job}> = ({t, job}) => {
+// one photo with Ken Burns motion: zooms in or out and drifts, direction varies per shot
+const KenBurns: React.FC<{src: string; t0: number; t1: number; t: number; i: number}> = ({src, t0, t1, t, i}) => {
+  const k = tw(t, t0, t1 + 0.8, 0, 1, (x) => x);
+  const zoomIn = i % 3 !== 1;
+  const z = zoomIn ? 1.06 + 0.16 * k : 1.22 - 0.16 * k;
+  const dir = [[-1, -0.5], [1, 0.4], [0.6, -1], [-0.8, 0.8]][i % 4];
+  return (
+    <AbsoluteFill style={{overflow: 'hidden'}}>
+      <Img src={src} style={{width: '100%', height: '100%', objectFit: 'cover',
+        transform: `scale(${z}) translate(${dir[0] * 40 * (k - 0.5)}px, ${dir[1] * 30 * (k - 0.5)}px)`, filter: 'saturate(0.85) contrast(1.08)'}} />
+    </AbsoluteFill>
+  );
+};
+
+const BrollView: React.FC<{t: number; job: Job}> = ({t, job}) => {
+  const bg = job.bg!;
+  const i = Math.max(0, bg.reduce((acc, b, k) => (t >= b.t ? k : acc), 0));
+  const cur = bg[i];
+  const next = bg[i + 1]?.t ?? job.end;
+  const prev = i > 0 ? bg[i - 1] : null;
+  const fade = prev ? tw(t, cur.t, cur.t + 0.6) : 1;
+  const url = (s: string) => staticFile(`${job.dir}/${s}`);
+  return (
+    <AbsoluteFill style={{background: '#000'}}>
+      {/* keep the next photo loaded */}
+      <div style={{position: 'absolute', width: 1, height: 1, overflow: 'hidden', opacity: 0}}>{bg[i + 1] ? <Img src={url(bg[i + 1].src)} /> : null}</div>
+      {prev && fade < 1 ? <KenBurns src={url(prev.src)} t0={prev.t} t1={cur.t} t={t} i={i - 1} /> : null}
+      <AbsoluteFill style={{opacity: fade}}>
+        <KenBurns src={url(cur.src)} t0={cur.t} t1={next} t={t} i={i} />
+      </AbsoluteFill>
+      {/* darken for readable text */}
+      <AbsoluteFill style={{background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.2) 40%, rgba(0,0,0,0.75) 100%)'}} />
+      <KineticView t={t} job={job} overlay />
+    </AbsoluteFill>
+  );
+};
+
+const KineticView: React.FC<{t: number; job: Job; overlay?: boolean}> = ({t, job, overlay}) => {
   const c = captionAt(t, job.voice, 'words');
   const [sx, sy] = shakeAt(t, job.fx);
   const emph = new Set((job.emphasis || []).map((w) => w.toLowerCase()));
@@ -366,12 +405,13 @@ const KineticView: React.FC<{t: number; job: Job}> = ({t, job}) => {
     return '#f4f4f4';
   };
   return (
-    <AbsoluteFill style={{background: 'radial-gradient(ellipse at 50% 45%, #1d1e26 0%, #0b0b0e 70%)'}}>
+    <AbsoluteFill style={{background: overlay ? 'transparent' : 'radial-gradient(ellipse at 50% 45%, #1d1e26 0%, #0b0b0e 70%)'}}>
       {/* fine texture; kept still, because grain that changes every frame makes files huge */}
-      <AbsoluteFill style={{opacity: 0.05, backgroundImage: 'repeating-linear-gradient(37deg, #fff 0 1px, transparent 1px 3px)'}} />
-      <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', padding: '0 150px', transform: `translate(${sx}px, ${sy}px) scale(${push})`}}>
+      {overlay ? null : <AbsoluteFill style={{opacity: 0.05, backgroundImage: 'repeating-linear-gradient(37deg, #fff 0 1px, transparent 1px 3px)'}} />}
+      <AbsoluteFill style={{alignItems: 'center', justifyContent: overlay ? 'flex-end' : 'center', padding: overlay ? '0 140px 120px' : '0 150px', transform: `translate(${sx}px, ${sy}px) scale(${push})`}}>
         {c ? (
-          <div style={{textAlign: 'center', fontFamily: '"Segoe UI Black", "Segoe UI", Arial, sans-serif', fontWeight: 900, fontSize: 104, lineHeight: 1.18, letterSpacing: -1}}>
+          <div style={{textAlign: 'center', fontFamily: '"Segoe UI Black", "Segoe UI", Arial, sans-serif', fontWeight: 900, fontSize: overlay ? 80 : 104, lineHeight: 1.18, letterSpacing: -1,
+            textShadow: overlay ? '0 4px 18px rgba(0,0,0,0.9)' : undefined}}>
             {c.words.map((w, i) => {
               const st = c.starts?.[i] ?? 0;
               const k = tw(t, st - 0.04, st + 0.16, 0, 1, EOUT);
@@ -380,7 +420,8 @@ const KineticView: React.FC<{t: number; job: Job}> = ({t, job}) => {
                 <span key={i} style={{
                   display: 'inline-block', margin: '0 14px', color: col, opacity: k,
                   transform: `translateY(${(1 - k) * 40}px) scale(${0.7 + 0.3 * k + (i === c.active ? 0.06 : 0)})`,
-                  textShadow: i === c.active && col === '#f4f4f4' ? '0 0 30px rgba(255,255,255,0.35)' : col !== '#f4f4f4' ? `0 0 28px ${col}66` : 'none',
+                  textShadow: overlay ? '0 4px 16px rgba(0,0,0,0.95), 0 0 2px #000'
+                    : i === c.active && col === '#f4f4f4' ? '0 0 30px rgba(255,255,255,0.35)' : col !== '#f4f4f4' ? `0 0 28px ${col}66` : 'none',
                 }}>
                   {w}
                 </span>
@@ -389,7 +430,7 @@ const KineticView: React.FC<{t: number; job: Job}> = ({t, job}) => {
           </div>
         ) : null}
       </AbsoluteFill>
-      <AbsoluteFill style={{boxShadow: 'inset 0 0 300px rgba(0,0,0,0.8)'}} />
+      <AbsoluteFill style={{boxShadow: overlay ? 'inset 0 0 220px rgba(0,0,0,0.6)' : 'inset 0 0 300px rgba(0,0,0,0.8)'}} />
       <Overlays t={t} job={job} />
       {job.endCard ? (
         <Sequence from={Math.round(job.end * FPS)}>

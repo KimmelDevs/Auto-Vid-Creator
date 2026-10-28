@@ -336,7 +336,7 @@ app.get('/api/music', wrap(() => {
 }));
 
 // ---- script checker: everything that would silently go wrong in a build
-const KNOWN_FX = new Set(['shake', 'flash', 'boom', 'zoom', 'heartbeat', 'red', 'glitch', 'rewind', 'fade', 'dark', 'light', 'whole', 'subscribe', 'knock', 'label', 'pause', 'hook']);
+const KNOWN_FX = new Set(['shake', 'flash', 'boom', 'zoom', 'heartbeat', 'red', 'glitch', 'rewind', 'fade', 'dark', 'light', 'whole', 'subscribe', 'knock', 'label', 'pause', 'hook', 'bg']);
 function checkScript(d) {
   const text = readSource(d);
   const out = [];
@@ -362,8 +362,10 @@ function checkScript(d) {
       const kind = snd[1].toLowerCase();
       const name = path.basename(snd[2], '.mp3').toLowerCase();
       if (kind === 'amb-stop') {
-        if (!loops[name]) add('warn', `[amb-stop:${snd[2]}] stops a loop that isn't playing.`, ln);
-        delete loops[name];
+        for (const one of (snd[2] + snd[3]).split(',').map((x) => path.basename(x.trim(), '.mp3').toLowerCase()).filter(Boolean)) {
+          if (!loops[one]) add('warn', `[amb-stop:${one}] stops a loop that isn't playing.`, ln);
+          delete loops[one];
+        }
         continue;
       }
       if (!fs.existsSync(path.join(SFX, snd[2]))) add('error', `Sound not found: ${snd[2]} (it will be skipped).`, ln);

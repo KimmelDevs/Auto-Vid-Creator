@@ -45,7 +45,7 @@ DEFAULTS = {
     'sfx_dir': str(ROOT / 'sfx' if any((ROOT / 'sfx').glob('*/*.mp3')) or not (ROOT.parent / 'sfx').exists() else ROOT.parent / 'sfx'),
 }
 EFFECTS = {'shake', 'flash', 'boom', 'zoom', 'heartbeat', 'red', 'glitch', 'rewind', 'fade', 'dark', 'light',
-           'whole', 'subscribe', 'knock', 'label', 'pause', 'hook'}
+           'whole', 'subscribe', 'knock', 'label', 'pause', 'hook', 'bg'}
 TAG = re.compile(r'\[([^\]]+)\]')
 OBJ = re.compile(r'^(\d+)(?:[.\-](\d+))?$')
 
@@ -434,6 +434,8 @@ def build(folder, name=None, render=False, out=None, short=False):
     # ---- effects
     fx = []
     for wi, (kind, arg), _ in tags:
+        if kind == 'bg':
+            continue
         if kind in ('obj', 'pause', 'sound', 'hook'):
             continue
         t = round(tag_time(wi), 2)
@@ -449,6 +451,18 @@ def build(folder, name=None, render=False, out=None, short=False):
         for it in items:
             if kw.search(it['text']):
                 fx.append({'t': round(it['at'] + 0.3, 2), 'type': 'flash' if re.search(r'explo|blast|shot', it['text'], re.I) else 'shake'})
+
+    # ---- [bg:photo.jpg] full-screen photos from <folder>/broll, shown with slow zoom/pan (no grid images needed)
+    bgs = []
+    for wi, (kind, arg), _ in tags:
+        if kind != 'bg' or not arg:
+            continue
+        f = folder / 'broll' / arg
+        if not f.exists():
+            print(f'  ! background photo not found: broll/{arg}')
+            continue
+        shutil.copyfile(f, dest / f'bg_{f.name}')
+        bgs.append({'t': round(tag_time(wi), 2), 'src': f'bg_{f.name}'})
 
     # ---- images
     panels = []
@@ -486,6 +500,7 @@ def build(folder, name=None, render=False, out=None, short=False):
         'mode': cfg['mode'],
         'theme': cfg.get('theme', 'light'),
         'emphasis': cfg.get('emphasis', []),
+        'bg': sorted(bgs, key=lambda b: b['t']),
     }
     props = dest / 'props.json'
     props.write_text(json.dumps({'job': job}))
