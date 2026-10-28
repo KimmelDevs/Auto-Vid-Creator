@@ -33,6 +33,7 @@ input, select, textarea { border: 1px solid var(--line); border-radius: 8px; pad
 code, pre { font-family: Consolas, monospace; font-size: 13px; }
 code { background: #efede8; padding: 1px 5px; border-radius: 4px; }
 a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+a.btn { color: var(--ink); text-decoration: none; }
 
 .app { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
 aside { background: var(--side); color: var(--side-ink); padding: 18px 14px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }

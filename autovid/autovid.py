@@ -76,6 +76,9 @@ def parse_tag(body):
     if m:
         # [sfx:fight/punch.mp3 vol=40 fade-in fade-out loop x3]  [amb:...]  [amb-stop:name]
         kind, rest = m[1].lower(), m[2].split()
+        if kind == 'amb-stop':
+            # [amb-stop:a,b] stops several loops at once
+            return [('sound', {'kind': kind, 'file': f.strip(), 'loop': False}) for f in ' '.join(rest).split(',') if f.strip()]
         snd = {'kind': kind, 'file': rest[0], 'vol': 100, 'fade_in': False, 'fade_out': False, 'loop': kind == 'amb', 'times': 1}
         for opt in rest[1:]:
             k, _, v = opt.lower().partition('=')
@@ -320,7 +323,8 @@ def build(folder, name=None, render=False, out=None, short=False):
         sys.exit(f'no .srt in {folder}')
     imgs = sorted([p for p in (folder / 'images').glob('*') if p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp')], key=natural_key)
     if not imgs:
-        sys.exit(f'no images in {folder / "images"}')
+        # no pictures yet: still build the narration, the video shows big captions only
+        print(f'  no images in {folder / "images"}: building a captions-only (listen) version')
     name = name or re.sub(r'[^A-Za-z0-9_-]+', '_', folder.name)
     dest = ROOT / 'public' / 'jobs' / name
     dest.mkdir(parents=True, exist_ok=True)
@@ -443,7 +447,7 @@ def build(folder, name=None, render=False, out=None, short=False):
 
     # ---- hook intro: replay a dramatic line first, then the story from the start
     hook = None
-    if cfg.get('hook') and hook_item:
+    if cfg.get('hook') and hook_item and imgs:
         hs, he = max(0.0, hook_item['at'] - 0.15), min(end, hook_item['at'] + hook_item['dur'] + 0.45)
         g = max([g for g in range(n_obj) if times[g] <= hook_item['at'] + 0.2] or [0])
         hook = {'at': round(hs, 2), 'dur': round(he - hs + 0.5, 2), 'panel': g // K, 'obj': g % K,

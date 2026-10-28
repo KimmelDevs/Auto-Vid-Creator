@@ -36,6 +36,8 @@ my_story/
   Use a white background and leave empty space between objects. The tool finds each
   object inside its grid cell automatically.
 - **One SRT** per folder. Its timing sets the pace of the voice.
+- **No images yet?** It still builds: the video shows big word-by-word captions on white, so you
+  can listen to a script before drawing anything. The studio's Play tab also has **Download audio**.
 
 ## 2. Run it
 

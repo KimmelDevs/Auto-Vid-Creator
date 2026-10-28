@@ -300,7 +300,7 @@ const f2 = (job: Job, type: string) => (type === 'red' ? 3 : 1);
 const Main: React.FC<{job: Job}> = ({job}) => {
   const t = useCurrentFrame() / FPS;
   const P = job.panels;
-  if (!P.length) return <AbsoluteFill style={{background: '#fff'}} />;
+  if (!P.length) return <ListenView t={t} job={job} />;
   let pi = P.findIndex((p, i) => t >= p.starts[0] && (i === P.length - 1 || t < P[i + 1].starts[0]));
   if (pi < 0) pi = 0;
   const p = P[pi];
@@ -333,6 +333,29 @@ const Main: React.FC<{job: Job}> = ({job}) => {
       {subs.map((s) => (
         <Sequence key={s} from={Math.round(s * FPS)} durationInFrames={4 * FPS}><SubscribeOverlay /></Sequence>
       ))}
+      {job.endCard ? (
+        <Sequence from={Math.round(job.end * FPS)}>
+          <EndCard text={job.endCard.text} sub={job.endCard.sub} />
+        </Sequence>
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
+// no images yet: big centred word captions on white, so a script can be listened to (and read along)
+const ListenView: React.FC<{t: number; job: Job}> = ({t, job}) => {
+  const c = captionAt(t, job.voice, job.captionStyle);
+  const [sx, sy] = shakeAt(t, job.fx);
+  return (
+    <AbsoluteFill style={{background: '#fff'}}>
+      <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', padding: '0 160px', transform: `translate(${sx}px, ${sy}px)`}}>
+        {c ? (
+          <div style={{textAlign: 'center', fontFamily: '"Segoe UI", Arial, sans-serif', fontWeight: 900, fontSize: 84, lineHeight: 1.3}}>
+            <CaptionWords words={c.words} active={c.active} size={84} />
+          </div>
+        ) : null}
+      </AbsoluteFill>
+      <Overlays t={t} job={job} />
       {job.endCard ? (
         <Sequence from={Math.round(job.end * FPS)}>
           <EndCard text={job.endCard.text} sub={job.endCard.sub} />

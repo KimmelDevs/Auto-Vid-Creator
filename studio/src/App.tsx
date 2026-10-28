@@ -719,6 +719,12 @@ const Play: React.FC<{proj: Project; reload: () => void; say: (m: string) => voi
         <button className="primary" onClick={build} disabled={busy}>
           {busy && st.kind === 'build' ? 'Building…' : job ? 'Rebuild preview' : 'Build preview'}
         </button>
+        {job && (
+          <a className="btn" href={`/${job.dir}/${job.audio}?v=${stamp}`} download={`${proj.id}.wav`} title="The narration with sounds and music, to listen anywhere">
+            🎧 Download audio
+          </a>
+        )}
+        {!proj.images.length && <span className="note" style={{margin: 0, padding: '4px 10px'}}>No images yet: the preview shows big captions so you can listen.</span>}
         <span className="muted">
           Press this after changing the script, images or effects. The first time takes a minute (it records the voice); after that it's quick.
         </span>
