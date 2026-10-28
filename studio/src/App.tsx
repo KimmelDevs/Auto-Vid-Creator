@@ -308,7 +308,10 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
   return (
     <div className="cols">
       <div className="grow">
-        <div className="row">
+        {text !== proj.script && (
+          <button className="primary floatsave" onClick={() => save()} title="Ctrl+S">💾 Save script</button>
+        )}
+        <div className="row sticky">
           <label className="btn">
             Upload .srt file
             <input type="file" accept=".srt,.txt" hidden onChange={(e) => upload(e.target.files?.[0])} />
