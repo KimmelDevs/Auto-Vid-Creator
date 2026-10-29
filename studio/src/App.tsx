@@ -490,6 +490,11 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
                 {imgMap[n] ? 'Replace' : 'Upload'}
                 <input type="file" accept="image/*" hidden onChange={(e) => uploadImg(n, e.target.files?.[0])} />
               </label>
+              {imgMap[n] && (
+                <a className="btn small" href={imgMap[n]} download={`${proj.id}_image${n}${(imgMap[n].match(/\.\w+(?=\?|$)/) || ['.png'])[0]}`} title="Save a copy of this image to your Downloads">
+                  Download
+                </a>
+              )}
               {imgMap[n] && <button className="small ghost" onClick={() => del(n)}>Remove</button>}
             </div>
             {imgMap[n] ? <img src={imgMap[n]} /> : <div className="drop">Drop image {n} here</div>}
