@@ -566,69 +566,78 @@ type Char = {name: string; fields: {label: string; value: string}[]};
 const CHAR_FIELDS = ['Appearance', 'Clothing', 'Personality'];
 const charText = (c: Char) => `${c.name}: ${c.fields.filter((f) => f.value.trim()).map((f) => `${f.label}: ${f.value.trim()}`).join('; ')}`;
 
+// characters live in the YouTube templates, so every part of a series shares them
 const Characters: React.FC<{proj: Project; say: (m: string) => void}> = ({proj, say}) => {
-  const [list, setList] = useState<Char[]>([]);
-  const [cur, setCur] = useState(0);
-  const [loaded, setLoaded] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [tpl, setTpl] = useState('');
+  const [curName, setCurName] = useState('');
   const [saved, setSaved] = useState(true);
-  const [projects, setProjects] = useState<string[]>([]);
   const last = useRef('');  // what is on disk, so opening the tab does not write anything
+  const firstName = (l: Char[]) => [...l].sort((x, y) => x.name.localeCompare(y.name))[0]?.name || '';
   useEffect(() => {
-    setLoaded(false);
-    api(`/api/projects/${proj.id}/characters`).then((l) => ((last.current = JSON.stringify(l)), setList(l), setCur(0), setLoaded(true))).catch(() => setLoaded(true));
-    api('/api/projects').then((l) => setProjects(l.map((x: any) => x.id).filter((id: string) => id !== proj.id))).catch(() => {});
+    api('/api/templates').then((l) => {
+      last.current = JSON.stringify(l);
+      setTemplates(l);
+      const series = (proj.config.youtube?.series || '').trim();
+      const t = l.find((x: any) => (x.series || '').trim() && (x.series || '').trim() === series) || l[0];
+      setTpl(t?.name || '');
+      setCurName(firstName(t?.characters || []));
+    }).catch(() => {});
   }, [proj.id]);
-  // save automatically shortly after every change
+  // save the templates file shortly after every change
   useEffect(() => {
-    if (!loaded || JSON.stringify(list) === last.current) return;
+    if (!templates.length || JSON.stringify(templates) === last.current) return;
     setSaved(false);
-    const t = setTimeout(() => api(`/api/projects/${proj.id}/characters`, {method: 'PUT', body: list}).then(() => ((last.current = JSON.stringify(list)), setSaved(true))).catch((e) => say(e.message)), 600);
+    const t = setTimeout(() => api('/api/templates', {method: 'PUT', body: templates}).then(() => ((last.current = JSON.stringify(templates)), setSaved(true))).catch((e) => say(e.message)), 600);
     return () => clearTimeout(t);
-  }, [list]);
-  const c = list[cur];
-  const change = (f: (c: Char) => Char) => setList((l) => l.map((x, i) => (i === cur ? f(x) : x)));
+  }, [templates]);
+  const list: Char[] = templates.find((t) => t.name === tpl)?.characters || [];
+  const sorted = [...list].sort((x, y) => x.name.localeCompare(y.name));
+  const c = list.find((x) => x.name === curName);
+  const setList = (f: (l: Char[]) => Char[]) => setTemplates((ts) => ts.map((t) => (t.name === tpl ? {...t, characters: f(t.characters || [])} : t)));
+  const change = (f: (c: Char) => Char) => setList((l) => l.map((x) => (x.name === curName ? f(x) : x)));
+  const pickTemplate = (name: string) => {
+    setTpl(name);
+    setCurName(firstName(templates.find((t) => t.name === name)?.characters || []));
+  };
   const add = () => {
     const name = prompt('Character name:')?.trim();
     if (!name) return;
+    if (list.some((x) => x.name.toLowerCase() === name.toLowerCase())) return say(`${name} already exists`);
     setList((l) => [...l, {name, fields: CHAR_FIELDS.map((label) => ({label, value: ''}))}]);
-    setCur(list.length);
+    setCurName(name);
   };
   const addField = () => {
     const label = prompt('What kind of info? (e.g. Hair, Weapon, Age, Voice)')?.trim();
     if (label) change((x) => ({...x, fields: [...x.fields, {label, value: ''}]}));
   };
-  const importFrom = async (id: string) => {
-    if (!id) return;
-    const theirs: Char[] = await api(`/api/projects/${id}/characters`);
-    if (!theirs.length) return say(`${id} has no characters`);
-    const have = new Set(list.map((x) => x.name.toLowerCase()));
-    const fresh = theirs.filter((x) => !have.has(x.name.toLowerCase()));
-    setList((l) => [...l, ...fresh]);
-    say(`Copied ${fresh.length} character(s) from ${id}${fresh.length < theirs.length ? ' (skipped ones you already have)' : ''}`);
-  };
   const copy = (t: string) => navigator.clipboard.writeText(t).then(() => say('Copied'));
-  if (!loaded) return null;
+  if (!templates.length) return <p className="muted">Make a template in the YouTube tab first; characters are kept with templates.</p>;
   return (
     <div className="chars">
       <div className="row">
-        <select value={c ? cur : ''} onChange={(e) => setCur(Number(e.target.value))} disabled={!list.length}>
+        <b>Template</b>
+        <select value={tpl} onChange={(e) => pickTemplate(e.target.value)}>
+          {templates.map((t) => <option key={t.name}>{t.name}</option>)}
+        </select>
+        <b>Character</b>
+        <select value={c ? curName : ''} onChange={(e) => setCurName(e.target.value)} disabled={!list.length}>
           {!list.length && <option value="">No characters yet</option>}
-          {list.map((x, i) => <option key={i} value={i}>{x.name}</option>)}
+          {sorted.map((x) => <option key={x.name}>{x.name}</option>)}
         </select>
         <button className="primary" onClick={add}>+ New character</button>
         {c && <button className="small" onClick={() => {
           const name = prompt('New name:', c.name)?.trim();
-          if (name) change((x) => ({...x, name}));
+          if (!name || name === c.name) return;
+          change((x) => ({...x, name}));
+          setCurName(name);
         }}>Rename</button>}
         {c && <button className="small ghost" onClick={() => {
           if (!confirm(`Delete ${c.name}?`)) return;
-          setList((l) => l.filter((_, i) => i !== cur));
-          setCur(0);
+          const rest = list.filter((x) => x.name !== c.name);
+          setList(() => rest);
+          setCurName(firstName(rest));
         }}>Delete</button>}
-        <select value="" onChange={(e) => importFrom(e.target.value)} title="Copy characters from another project">
-          <option value="">Copy from project…</option>
-          {projects.map((id) => <option key={id}>{id}</option>)}
-        </select>
         <span className="muted">{saved ? 'Saved' : 'Saving…'}</span>
       </div>
       {c ? (
@@ -646,7 +655,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void}> = ({proj, 
           <div className="row">
             <button onClick={addField}>+ Add info</button>
             <button className="primary" onClick={() => copy(charText(c))}>📋 Copy for prompt</button>
-            {list.length > 1 && <button className="small" onClick={() => copy(list.map(charText).join('\n'))}>Copy all characters</button>}
+            {list.length > 1 && <button className="small" onClick={() => copy(sorted.map(charText).join('\n'))}>Copy all characters</button>}
           </div>
           <div className="ytout"><pre>{charText(c)}</pre></div>
         </div>
@@ -1388,7 +1397,9 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
       thumbTop: line1, thumbBottom: line2, thumbStyle: th, thumbExtra: extra, thumbStickers: stickers,
       thumbImg: img, thumbObj: obj, thumbBadge: badge.replace(/^part\s*\d+$/i, (m) => m.replace(/\d+/, '{n}')),
     };
-    const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
+    // re-read first and keep fields edited elsewhere (characters live in the Characters tab)
+    const fresh: any[] = await api('/api/templates');
+    const list = await api('/api/templates', {method: 'PUT', body: [...fresh.filter((x) => x.name !== name), {...(fresh.find((x) => x.name === name) || {}), ...t}]});
     setTemplates(list);
     setTpl(name);
     say(`Template "${name}" saved`);
@@ -1402,7 +1413,9 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
       name, series, title: YT_DEFAULT.title, description: YT_DEFAULT.description, tags: YT_DEFAULT.tags,
       endText: 'Part {next} coming next...', endSub: "Subscribe so you don't miss it!", thumbTop: series, thumbBottom: '',
     };
-    const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
+    // re-read first and keep fields edited elsewhere (characters live in the Characters tab)
+    const fresh: any[] = await api('/api/templates');
+    const list = await api('/api/templates', {method: 'PUT', body: [...fresh.filter((x) => x.name !== name), {...(fresh.find((x) => x.name === name) || {}), ...t}]});
     setTemplates(list);
     setTpl(name);
     setY((s: any) => ({...s, series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub, fb: '', tiktok: ''}));
@@ -1412,7 +1425,8 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   };
   const deleteTemplate = async () => {
     if (!tpl || !confirm(`Delete the "${tpl}" template?`)) return;
-    const list = await api('/api/templates', {method: 'PUT', body: templates.filter((x) => x.name !== tpl)});
+    const fresh: any[] = await api('/api/templates');
+    const list = await api('/api/templates', {method: 'PUT', body: fresh.filter((x) => x.name !== tpl)});
     setTemplates(list);
     setTpl(list[0]?.name || '');
   };
