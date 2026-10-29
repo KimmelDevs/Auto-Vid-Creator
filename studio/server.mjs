@@ -386,7 +386,16 @@ app.post('/api/projects/:id/duplicate', wrap((req) => {
   const cfg = readJson(path.join(src, 'config.json'), {});
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify(cfg, null, 1));
   if (req.body.script) writeScript(d, readSource(src));
+  if (fs.existsSync(path.join(src, 'characters.json'))) fs.copyFileSync(path.join(src, 'characters.json'), path.join(d, 'characters.json'));
   return {id};
+}));
+
+// ---- characters for image prompts: [{name, fields: [{label, value}]}] in <project>/characters.json
+app.get('/api/projects/:id/characters', wrap((req) => readJson(path.join(dirOf(req.params.id), 'characters.json'), [])));
+app.put('/api/projects/:id/characters', wrap((req) => {
+  const list = Array.isArray(req.body) ? req.body : [];
+  fs.writeFileSync(path.join(dirOf(req.params.id), 'characters.json'), JSON.stringify(list, null, 1));
+  return list;
 }));
 
 // ---- music: sfx/bgm/<mood>/<track>.mp3

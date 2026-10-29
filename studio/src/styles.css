@@ -183,3 +183,8 @@ section { padding: 20px 24px 60px; }
 /* insert a storyboard between two others */
 button.insert { display: block; width: 100%; margin: 4px 0 10px; padding: 4px; border: 1px dashed #cfccc5; background: transparent; color: var(--muted); font-size: 13px; opacity: 0.55; }
 button.insert:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
+
+/* script tab: Script | Characters */
+.subtabs { display: inline-flex; margin-bottom: 12px; }
+.chars .form { max-width: 760px; }
+.chars .flabel { font-weight: 600; width: 220px; }
