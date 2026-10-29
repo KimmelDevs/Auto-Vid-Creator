@@ -1196,7 +1196,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   });
   const n = Number(proj.id.match(/(\d+)\D*$/)?.[1] || 1);
   const fillWith = (v: any) => (t: string) =>
-    (t || '').replaceAll('{n}', String(n)).replaceAll('{next}', String(n + 1)).replaceAll('{series}', v.series || proj.id.replace(/[_\d]+$/, '').replace(/_/g, ' '));
+    (t || '').replaceAll('{n}', String(n)).replace(/Part #/g, `Part ${n}`).replaceAll('{next}', String(n + 1)).replaceAll('{series}', v.series || proj.id.replace(/[_\d]+$/, '').replace(/_/g, ' '));
   const fill = fillWith(y);
   const set = (k: string, v: string) => setY((s: any) => ({...s, [k]: v}));
   // the end card ("Part 7 coming next... / Subscribe") is written into the project too
@@ -1210,9 +1210,12 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   // templates: one click fills title, description, tags, end card and thumbnail text
   const [templates, setTemplates] = useState<any[]>([]);
   const [tpl, setTpl] = useState('');
-  useEffect(() => void api('/api/templates').then((l) => (setTemplates(l), setTpl((t) => t || l[0]?.name || ''))).catch(() => {}), []);
-  const useTemplate = async () => {
-    const t = templates.find((x) => x.name === tpl);
+  // preselect the template this project already uses (same series), without applying it
+  useEffect(() => void api('/api/templates').then((l) => (setTemplates(l), setTpl((t) => t || l.find((x: any) => x.series && x.series === y.series)?.name || ''))).catch(() => {}), []);
+  // picking a template in the dropdown applies it straight away
+  const useTemplate = async (name: string) => {
+    setTpl(name);
+    const t = templates.find((x) => x.name === name);
     if (!t) return;
     const v = {...y, series: t.series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub};
     setY(v);
@@ -1452,10 +1455,10 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
       <div className="form grow">
         <div className="row note">
           <b>Template</b>
-          <select value={tpl} onChange={(e) => setTpl(e.target.value)}>
+          <select value={tpl} onChange={(e) => useTemplate(e.target.value)}>
+            <option value="" disabled>Choose a template…</option>
             {templates.map((t) => <option key={t.name}>{t.name}</option>)}
           </select>
-          <button className="primary" onClick={useTemplate} disabled={!tpl}>Use template</button>
           <button className="small" onClick={createTemplate} title="Start a new template for a new series">+ Create template</button>
           <button className="small" onClick={() => saveTemplate(false)} disabled={!tpl} title="Save the changes on this page into the selected template">💾 Save template</button>
           <button className="small" onClick={() => saveTemplate(true)} title="Save what is on this page as a new template">Save as new</button>
