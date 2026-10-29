@@ -563,7 +563,7 @@ const ScriptTab: React.FC<{proj: Project; reload: () => void; say: (m: string) =
 };
 
 type Char = {name: string; fields: {label: string; value: string}[]};
-const CHAR_FIELDS = ['Appearance', 'Clothing', 'Personality'];
+const CHAR_FIELDS = ['Appearance', 'Face', 'Clothing', 'Personality'];
 const charText = (c: Char) => `${c.name}: ${c.fields.filter((f) => f.value.trim()).map((f) => `${f.label}: ${f.value.trim()}`).join('; ')}`;
 
 // characters live in the YouTube templates, so every part of a series shares them

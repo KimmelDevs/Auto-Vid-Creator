@@ -17,7 +17,9 @@
 - YouTube tab: title/description/tags templates with {series} and {n}, plus a thumbnail maker.
 
 ## Art style (paste at the top of every image prompt)
-Generate an image. Minimalist hand-drawn sketch illustration, pure black ink pen sketch style, restrained Notion-like doodle aesthetic. Concept-driven, not realistic. Pure clean white background (#FFFFFF), crisp black ink lines. Manga-influenced black ink line art with light gray tones. Clothes and skin are ink and gray only, never brown or colored. Use only flat touches of red, orange and blue as accents (red for blood, impact bursts and claw marks; orange for alarms, light and sound lines; blue for water and sweat). No other colors, no gradients, no textures, no 3D, no photographic detail. Simple outlines, a few lines per object, lots of empty space. All humans are simple faceless figures. 16:9 landscape. Absolutely NO text, letters, numbers, words, labels, question marks, exclamation marks or equals signs anywhere in the image (signs, screens, maps and pages stay blank or use simple icons). This is one panel of a fictional storyboard, drawn in a cartoon doodle style.
+Generate an image. Minimalist hand-drawn sketch illustration, pure black ink pen sketch style, restrained Notion-like doodle aesthetic. Concept-driven, not realistic. Pure clean white background (#FFFFFF), crisp black ink lines. Manga-influenced black ink line art with light gray tones. Clothes and skin are ink and gray only, never brown or colored. Use only flat touches of red, orange and blue as accents (red for blood, impact bursts and claw marks; orange for alarms, light and sound lines; blue for water and sweat). No other colors, no gradients, no textures, no 3D, no photographic detail. Simple outlines, a few lines per object, lots of empty space. Every person has a simple, expressive manga-doodle face (see Faces below). 16:9 landscape. Absolutely NO text, letters, numbers, words, labels, question marks, exclamation marks or equals signs anywhere in the image (signs, screens, maps and pages stay blank or use simple icons). This is one panel of a fictional storyboard, drawn in a cartoon doodle style.
+
+Faces: every person has a clean, simple manga-doodle face in black ink: small solid oval eyes with a tiny white highlight, simple curved eyebrows, a short line for the nose and a short mouth line. Faces stay minimal (no realistic shading, no detailed lips or eyelashes) but clearly show the emotion of the moment: fear, anger, grief, relief, a small smile. Keep each character's face exactly the same in every image, following their Face description. Small or far-away figures may use just dots for eyes. Raiders keep their faces hidden by hoods and scarves.
 
 Layout: 6 separate objects in two rows of three, with wide empty space between every object so none overlap or touch. Every object stays fully inside its own cell. Reading order: top row left to right, then bottom row left to right.
 
@@ -73,7 +75,7 @@ STYLE (copy these rules into the new prompt word for word):
 - Manga-influenced black ink line art with light gray tones. Clothes and skin are ink and gray only, never brown or colored.
 - Use only flat touches of red, orange and blue as accents (red for blood, impact bursts and claw marks). No other colors, no gradients, no textures, no 3D, no photographic detail.
 - Simple outlines, a few lines per object, lots of empty space.
-- All humans are simple faceless figures.
+- All humans have simple expressive manga-doodle faces: small solid oval eyes with a tiny highlight, simple eyebrows, a short nose line and a short mouth line, same face for each character every time.
 - 16:9 landscape. Absolutely NO text, letters, numbers, words, labels, question marks, exclamation marks or equals signs anywhere in the image.
 
 LAYOUT:
