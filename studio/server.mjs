@@ -265,8 +265,28 @@ app.post('/api/projects/:id/images/:n', upload.single('file'), wrap((req) => {
   if (!req.file || !IMG_EXT.includes(ext) || !(n >= 1)) throw Object.assign(new Error('upload a png, jpg or webp image'), {status: 400});
   const dir = path.join(d, 'images');
   fs.mkdirSync(dir, {recursive: true});
+  // ?keep=1 (image editor): copy the untouched original to images_backup the first time it is edited
+  if (req.query.keep) {
+    const bak = path.join(d, 'images_backup');
+    const old = IMG_EXT.map((e) => `${n}${e}`).find((f) => fs.existsSync(path.join(dir, f)));
+    if (old && !IMG_EXT.some((e) => fs.existsSync(path.join(bak, `${n}${e}`)))) {
+      fs.mkdirSync(bak, {recursive: true});
+      fs.copyFileSync(path.join(dir, old), path.join(bak, old));
+    }
+  }
   for (const e of IMG_EXT) fs.rmSync(path.join(dir, `${n}${e}`), {force: true});
   fs.writeFileSync(path.join(dir, `${n}${ext}`), req.file.buffer);
+  return {ok: true};
+}));
+
+// put back the original saved by the image editor
+app.post('/api/projects/:id/images/:n/restore', wrap((req) => {
+  const d = dirOf(req.params.id);
+  const n = Number(req.params.n);
+  const old = IMG_EXT.map((e) => `${n}${e}`).find((f) => fs.existsSync(path.join(d, 'images_backup', f)));
+  if (!old) throw Object.assign(new Error('no original saved for this image'), {status: 404});
+  for (const e of IMG_EXT) fs.rmSync(path.join(d, 'images', `${n}${e}`), {force: true});
+  fs.copyFileSync(path.join(d, 'images_backup', old), path.join(d, 'images', old));
   return {ok: true};
 }));
 

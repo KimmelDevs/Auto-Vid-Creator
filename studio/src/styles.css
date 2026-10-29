@@ -159,3 +159,13 @@ section { padding: 20px 24px 60px; }
 
 /* always reachable Save on the Script tab when there are unsaved changes */
 .floatsave { position: fixed; right: 24px; bottom: 24px; z-index: 30; padding: 12px 22px; font-size: 16px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
+
+/* image editor */
+.ed-tools button.on { background: #1d1d1b; color: #fff; border-color: #1d1d1b; }
+.ed-sep { width: 1px; align-self: stretch; background: #ddd; margin: 0 4px; }
+.ed-color { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid #ccc; }
+.ed-color.on { outline: 3px solid #2f6fd1; outline-offset: 1px; background-clip: padding-box; }
+.ed-stage { position: relative; border: 1px solid #ddd; background: #fff; line-height: 0; }
+.ed-stage canvas { width: 100%; height: auto; display: block; }
+.ed-over { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
+.ed-swap, .ed-clear { cursor: pointer; }

@@ -76,6 +76,7 @@ const VOICES = [
 const TABS = [
   ['script', '1. Script'],
   ['images', '2. Images & Effects'],
+  ['edit', 'Edit image'],
   ['play', '3. Play'],
   ['render', '4. Make video'],
   ['youtube', 'YouTube'],
@@ -184,6 +185,7 @@ export const App: React.FC = () => {
             <section>
               {tab === 'script' && <Script proj={proj} reload={loadProj} say={say} />}
               {tab === 'images' && <Images proj={proj} reload={loadProj} say={say} goScript={() => setTab('script')} />}
+              {tab === 'edit' && <ImageEditor proj={proj} reload={loadProj} say={say} />}
               {tab === 'play' && <Play proj={proj} reload={loadProj} say={say} />}
               {tab === 'render' && <Render proj={proj} reload={() => (loadProj(), loadList())} say={say} />}
               {tab === 'youtube' && <YouTube proj={proj} reload={loadProj} say={say} />}
@@ -513,6 +515,282 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
           </div>
         </div>
       ))}
+    </div>
+  );
+};
+
+// ---------- image editor ----------
+// Draw on a storyboard image, cover things with white, or swap one object for a new picture.
+type Tool = 'pen' | 'white' | 'box' | 'whitebox' | 'swap' | 'clear';
+const TOOLS: [Tool, string, string][] = [
+  ['pen', '✏️ Pen', 'Draw lines'],
+  ['white', '🧽 White brush', 'Paint white over anything'],
+  ['box', '▭ Box', 'Drag to draw a box outline'],
+  ['whitebox', '⬜ White box', 'Drag to cover an area with white'],
+  ['swap', '🖼️ New picture', 'Click an object, then pick a file (or press Ctrl+V first to paste one)'],
+  ['clear', '🗑️ Empty object', 'Click an object to make it blank white'],
+];
+const COLORS = ['#111111', '#d6402f', '#f08a24', '#2f6fd1', '#ffffff'];
+
+const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string) => void}> = ({proj, reload, say}) => {
+  const [n, setN] = useState<number | null>(proj.images[0]?.n ?? null);
+  const [tool, setTool] = useState<Tool>('pen');
+  const [color, setColor] = useState(COLORS[0]);
+  const [size, setSize] = useState(6);
+  const [dirty, setDirty] = useState(false);
+  const [pasted, setPasted] = useState<HTMLImageElement | null>(null);  // picture waiting to be placed
+  const [hover, setHover] = useState<number | null>(null);  // object cell under the mouse
+  const main = useRef<HTMLCanvasElement>(null);
+  const over = useRef<HTMLCanvasElement>(null);
+  const file = useRef<HTMLInputElement>(null);
+  const undo = useRef<ImageData[]>([]);
+  const drag = useRef<{x: number; y: number} | null>(null);
+  const swapCell = useRef<number | null>(null);
+  const [rows, cols] = proj.config.grid || [2, 3];
+  const url = proj.images.find((i) => i.n === n)?.url;
+
+  useEffect(() => {
+    if (!url || !main.current) return;
+    const img = new Image();
+    img.onload = () => {
+      for (const c of [main.current!, over.current!]) {
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+      }
+      main.current!.getContext('2d')!.drawImage(img, 0, 0);
+      undo.current = [];
+      setDirty(false);
+    };
+    img.src = url;
+  }, [url]);
+
+  // Ctrl+V a picture (e.g. copied from ChatGPT), then click the object it should replace
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/'));
+      if (!f) return;
+      const img = new Image();
+      img.onload = () => {
+        setPasted(img);
+        setTool('swap');
+        say('Picture pasted. Now click the object it should replace.');
+      };
+      img.src = URL.createObjectURL(f);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [say]);
+
+  const ctx = () => main.current!.getContext('2d')!;
+  const remember = () => {
+    const c = main.current!;
+    undo.current = [...undo.current.slice(-19), ctx().getImageData(0, 0, c.width, c.height)];
+    setDirty(true);
+  };
+  const back = () => {
+    const last = undo.current.pop();
+    if (last) ctx().putImageData(last, 0, 0);
+    setDirty(undo.current.length > 0);
+  };
+  const pos = (e: React.PointerEvent) => {
+    const r = main.current!.getBoundingClientRect();
+    return {x: ((e.clientX - r.left) / r.width) * main.current!.width, y: ((e.clientY - r.top) / r.height) * main.current!.height};
+  };
+  const cellAt = (p: {x: number; y: number}) => {
+    const c = main.current!;
+    return Math.min(rows - 1, Math.floor((p.y / c.height) * rows)) * cols + Math.min(cols - 1, Math.floor((p.x / c.width) * cols));
+  };
+  const cellRect = (i: number) => {
+    const c = main.current!;
+    const w = c.width / cols;
+    const h = c.height / rows;
+    return [(i % cols) * w, Math.floor(i / cols) * h, w, h];
+  };
+  // draw the grid / box preview on the top canvas
+  const drawOver = (box?: number[]) => {
+    const c = over.current!;
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, c.width, c.height);
+    if (tool === 'swap' || tool === 'clear') {
+      g.setLineDash([12, 8]);
+      g.lineWidth = 3;
+      for (let i = 0; i < rows * cols; i++) {
+        const [x, y, w, h] = cellRect(i);
+        g.strokeStyle = i === hover ? '#d6402f' : '#2f6fd188';
+        g.fillStyle = i === hover ? '#d6402f22' : 'transparent';
+        g.fillRect(x, y, w, h);
+        g.strokeRect(x + 2, y + 2, w - 4, h - 4);
+        g.fillStyle = '#2f6fd1';
+        g.font = 'bold 28px sans-serif';
+        g.fillText(`${n}.${i + 1}`, x + 12, y + 36);
+      }
+      g.setLineDash([]);
+    }
+    if (box) {
+      const [x0, y0, x1, y1] = box;
+      g.lineWidth = tool === 'box' ? size : 2;
+      g.strokeStyle = tool === 'box' ? color : '#2f6fd1';
+      g.fillStyle = tool === 'whitebox' ? '#ffffffcc' : 'transparent';
+      g.fillRect(x0, y0, x1 - x0, y1 - y0);
+      g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    }
+  };
+  useEffect(() => {
+    if (over.current?.width) drawOver();
+  });
+
+  // fit a picture inside an object cell on a white background
+  const place = (img: HTMLImageElement, i: number) => {
+    remember();
+    const [x, y, w, h] = cellRect(i);
+    const pad = Math.min(w, h) * 0.04;
+    const s = Math.min((w - 2 * pad) / img.naturalWidth, (h - 2 * pad) / img.naturalHeight);
+    const g = ctx();
+    g.fillStyle = '#fff';
+    g.fillRect(x, y, w, h);
+    g.drawImage(img, x + (w - img.naturalWidth * s) / 2, y + (h - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
+  };
+  const pickFile = (f?: File) => {
+    const i = swapCell.current;
+    if (!f || i == null) return;
+    const img = new Image();
+    img.onload = () => place(img, i);
+    img.src = URL.createObjectURL(f);
+  };
+
+  const down = (e: React.PointerEvent) => {
+    const p = pos(e);
+    if (tool === 'swap' || tool === 'clear') {
+      const i = cellAt(p);
+      if (tool === 'clear') {
+        remember();
+        const [x, y, w, h] = cellRect(i);
+        ctx().fillStyle = '#fff';
+        ctx().fillRect(x, y, w, h);
+      } else if (pasted) {
+        place(pasted, i);
+        setPasted(null);
+      } else {
+        swapCell.current = i;
+        file.current?.click();
+      }
+      return;
+    }
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);  // keep drawing if the mouse leaves the image
+    } catch {}
+    drag.current = p;
+    if (tool === 'pen' || tool === 'white') {
+      remember();
+      const g = ctx();
+      g.strokeStyle = tool === 'white' ? '#fff' : color;
+      g.lineWidth = tool === 'white' ? size * 4 : size;
+      g.lineCap = g.lineJoin = 'round';
+      g.beginPath();
+      g.moveTo(p.x, p.y);
+      g.lineTo(p.x + 0.1, p.y);
+      g.stroke();
+    }
+  };
+  const move = (e: React.PointerEvent) => {
+    const p = pos(e);
+    if (tool === 'swap' || tool === 'clear') {
+      const i = cellAt(p);
+      if (i !== hover) setHover(i);
+      return;
+    }
+    const d = drag.current;
+    if (!d) return;
+    if (tool === 'pen' || tool === 'white') {
+      const g = ctx();
+      g.lineTo(p.x, p.y);
+      g.stroke();
+    } else {
+      drawOver([d.x, d.y, p.x, p.y]);
+    }
+  };
+  const up = (e: React.PointerEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || (tool !== 'box' && tool !== 'whitebox')) return;
+    const p = pos(e);
+    drawOver();
+    if (Math.abs(p.x - d.x) < 3 || Math.abs(p.y - d.y) < 3) return;
+    remember();
+    const g = ctx();
+    if (tool === 'whitebox') {
+      g.fillStyle = '#fff';
+      g.fillRect(d.x, d.y, p.x - d.x, p.y - d.y);
+    } else {
+      g.strokeStyle = color;
+      g.lineWidth = size;
+      g.strokeRect(d.x, d.y, p.x - d.x, p.y - d.y);
+    }
+  };
+
+  const save = () =>
+    main.current!.toBlob(async (b) => {
+      if (!b || n == null) return;
+      const form = new FormData();
+      form.append('file', b, `${n}.png`);
+      try {
+        await api(`/api/projects/${proj.id}/images/${n}?keep=1`, {form});
+        setDirty(false);
+        say(`Image ${n} saved (the original is kept in images_backup). Build the preview again to see it.`);
+        reload();
+      } catch (err: any) {
+        say(err.message);
+      }
+    }, 'image/png');
+  const restore = async () => {
+    if (n == null || !confirm(`Put back the original image ${n}? Your edits to it will be lost.`)) return;
+    try {
+      await api(`/api/projects/${proj.id}/images/${n}/restore`, {method: 'POST'});
+      say(`Original image ${n} is back`);
+      reload();
+    } catch (err: any) {
+      say(err.message);
+    }
+  };
+  const choose = (k: number) => {
+    if (dirty && !confirm('You have unsaved changes. Leave this image anyway?')) return;
+    setN(k);
+  };
+
+  if (!proj.images.length) return <p className="muted">No images yet. Upload some in "2. Images & Effects" first.</p>;
+  return (
+    <div className="editor">
+      <div className="row">
+        <b>Image:</b>
+        {proj.images.map((i) => (
+          <button key={i.n} className={i.n === n ? 'primary small' : 'small'} onClick={() => choose(i.n)}>{i.n}</button>
+        ))}
+      </div>
+      <div className="row sticky ed-tools">
+        {TOOLS.map(([k, label, tip]) => (
+          <button key={k} className={tool === k ? 'on' : ''} title={tip} onClick={() => setTool(k)}>{label}</button>
+        ))}
+        <span className="ed-sep" />
+        {COLORS.map((c) => (
+          <button key={c} className={`ed-color${color === c ? ' on' : ''}`} style={{background: c}} title="Colour" onClick={() => setColor(c)} />
+        ))}
+        <span className="ed-sep" />
+        {[3, 6, 12].map((s, i) => (
+          <button key={s} className={size === s ? 'on small' : 'small'} onClick={() => setSize(s)}>{['Thin', 'Medium', 'Thick'][i]}</button>
+        ))}
+        <span className="ed-sep" />
+        <button onClick={back} disabled={!undo.current.length}>↶ Undo</button>
+        <button className="primary" onClick={save} disabled={!dirty}>💾 Save</button>
+        <button className="small ghost" onClick={restore}>Restore original</button>
+      </div>
+      <p className="muted">
+        {TOOLS.find((t) => t[0] === tool)![2]}.{pasted ? ' A pasted picture is waiting: click an object.' : ''} Tip: copy a picture anywhere (e.g. ChatGPT), press Ctrl+V here, then click the object.
+      </p>
+      <div className="ed-stage">
+        <canvas ref={main} />
+        <canvas ref={over} className={`ed-over ed-${tool}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={() => setHover(null)} />
+      </div>
+      <input ref={file} type="file" accept="image/*" hidden onChange={(e) => (pickFile(e.target.files?.[0]), (e.target.value = ''))} />
     </div>
   );
 };
