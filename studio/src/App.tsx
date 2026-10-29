@@ -426,10 +426,27 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
       await uploadImg(m ? Number(m[1]) : next++, f);
     }
   };
+  // insert an empty storyboard before image n; later images and their script tags move up by one
+  const insertAt = async (n: number) => {
+    if (dirty && !confirm('You have unsaved effects. Insert anyway? (unsaved effects will be lost)')) return;
+    try {
+      await api(`/api/projects/${proj.id}/images/${n}/insert`, {method: 'POST'});
+      say(`New empty image ${n} added. Later images moved up by one (script tags too).`);
+      reload();
+    } catch (e: any) {
+      say(e.message);
+    }
+  };
+  // delete storyboard n; later images and their script tags move down by one
   const del = async (n: number) => {
-    if (!confirm(`Remove image ${n}?`)) return;
-    await api(`/api/projects/${proj.id}/images/${n}`, {method: 'DELETE'});
-    reload();
+    if (!confirm(`Delete image ${n}?\n\nImages after it move down by one, and the [${n}.x] tags are taken out of the script (the words stay).\nThe picture is kept in images_backup/deleted.`)) return;
+    try {
+      await api(`/api/projects/${proj.id}/images/${n}/delete`, {method: 'POST'});
+      say(`Image ${n} deleted`);
+      reload();
+    } catch (e: any) {
+      say(e.message);
+    }
   };
   const setObjFx = (key: string, list: string[]) => {
     setFx((s) => ({...s, [key]: list}));
@@ -475,7 +492,11 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
         </div>
       )}
       {slots.map((n) => (
-        <div className="slot" key={n}>
+        <React.Fragment key={n}>
+        {n <= maxN && (
+          <button className="insert" onClick={() => insertAt(n)} title={`Add a new empty image before image ${n}`}>+ Insert image here</button>
+        )}
+        <div className="slot">
           <div
             className={'imgbox' + (imgMap[n] ? '' : ' missing')}
             onDragOver={(e) => e.preventDefault()}
@@ -495,7 +516,7 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
                   Download
                 </a>
               )}
-              {imgMap[n] && <button className="small ghost" onClick={() => del(n)}>Remove</button>}
+              {n <= maxN && <button className="small ghost" onClick={() => del(n)} title="Delete this storyboard; later ones move down">🗑️ Delete</button>}
             </div>
             {imgMap[n] ? <img src={imgMap[n]} /> : <div className="drop">Drop image {n} here</div>}
           </div>
@@ -519,6 +540,7 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
             })}
           </div>
         </div>
+        </React.Fragment>
       ))}
     </div>
   );

@@ -279,6 +279,57 @@ app.post('/api/projects/:id/images/:n', upload.single('file'), wrap((req) => {
   return {ok: true};
 }));
 
+// ---- insert / delete a whole storyboard image: later images and their [n.k] script tags move up or down by one
+// renumber pure object tags ([3], [3.2], [3-2]); fn returns the new image number, or null to drop the tag
+const renumberTags = (text, fn) =>
+  text.replace(/\[(\d+)(?:([.\-])(\d+))?\]/g, (m, a, sep, b) => {
+    const to = fn(Number(a));
+    return to == null ? '' : `[${to}${sep ? sep + b : ''}]`;
+  });
+// move every file named <n>.<ext> in dir to <n + by>.<ext>, for n >= from
+const shiftFiles = (dir, from, by) => {
+  if (!fs.existsSync(dir)) return;
+  const files = fs.readdirSync(dir).filter((f) => /^\d+$/.test(path.parse(f).name) && IMG_EXT.includes(path.extname(f).toLowerCase()))
+    .map((f) => ({f, n: Number(path.parse(f).name)})).filter((x) => x.n >= from)
+    .sort((a, b) => (by > 0 ? b.n - a.n : a.n - b.n));  // move in an order that never overwrites
+  for (const {f, n} of files) fs.renameSync(path.join(dir, f), path.join(dir, `${n + by}${path.extname(f)}`));
+};
+
+app.post('/api/projects/:id/images/:n/insert', wrap((req) => {
+  const d = dirOf(req.params.id);
+  const n = Number(req.params.n);
+  if (!(n >= 1)) throw Object.assign(new Error('bad image number'), {status: 400});
+  shiftFiles(path.join(d, 'images'), n, 1);
+  shiftFiles(path.join(d, 'images_backup'), n, 1);
+  writeScript(d, renumberTags(readSource(d), (k) => (k >= n ? k + 1 : k)));
+  return {ok: true};
+}));
+
+app.post('/api/projects/:id/images/:n/delete', wrap((req) => {
+  const d = dirOf(req.params.id);
+  const n = Number(req.params.n);
+  if (!(n >= 1)) throw Object.assign(new Error('bad image number'), {status: 400});
+  // the deleted picture is kept in images_backup/deleted, never thrown away
+  const keep = path.join(d, 'images_backup', 'deleted');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  for (const e of IMG_EXT) {
+    const f = path.join(d, 'images', `${n}${e}`);
+    if (fs.existsSync(f)) {
+      fs.mkdirSync(keep, {recursive: true});
+      fs.renameSync(f, path.join(keep, `${stamp}_image${n}${e}`));
+    }
+    const b = path.join(d, 'images_backup', `${n}${e}`);
+    if (fs.existsSync(b)) {
+      fs.mkdirSync(keep, {recursive: true});
+      fs.renameSync(b, path.join(keep, `${stamp}_image${n}_original${e}`));
+    }
+  }
+  shiftFiles(path.join(d, 'images'), n + 1, -1);
+  shiftFiles(path.join(d, 'images_backup'), n + 1, -1);
+  writeScript(d, renumberTags(readSource(d), (k) => (k === n ? null : k > n ? k - 1 : k)));
+  return {ok: true};
+}));
+
 // put back the original saved by the image editor
 app.post('/api/projects/:id/images/:n/restore', wrap((req) => {
   const d = dirOf(req.params.id);
