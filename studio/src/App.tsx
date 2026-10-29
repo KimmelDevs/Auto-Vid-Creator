@@ -1217,7 +1217,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   });
   const n = Number(proj.id.match(/(\d+)\D*$/)?.[1] || 1);
   const fillWith = (v: any) => (t: string) =>
-    (t || '').replaceAll('{n}', String(n)).replace(/Part #/g, `Part ${n}`).replaceAll('{next}', String(n + 1)).replaceAll('{series}', v.series || proj.id.replace(/[_\d]+$/, '').replace(/_/g, ' '));
+    (t || '').replaceAll('{n}', String(n)).replace(/Part #/g, `Part ${n}`).replaceAll('{next}', String(n + 1)).replaceAll('{series}', (v.series || '').trim() || proj.id.replace(/[_\d]+$/, '').replace(/_/g, ' '));
   const fill = fillWith(y);
   const set = (k: string, v: string) => setY((s: any) => ({...s, [k]: v}));
   // the end card ("Part 7 coming next... / Subscribe") is written into the project too
@@ -1238,7 +1238,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     setTpl(name);
     const t = templates.find((x) => x.name === name);
     if (!t) return;
-    const v = {...y, series: t.series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub};
+    const v = {...y, series: t.series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub, fb: t.fb || '', tiktok: t.tiktok || ''};
     setY(v);
     setLine1(t.thumbTop || '');
     setLine2(t.thumbBottom || '');
@@ -1256,7 +1256,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     const name = asNew ? prompt('Template name:', tpl || y.series || 'My series')?.trim() : tpl;
     if (!name) return;
     const t = {
-      name, series: y.series, title: y.title, description: y.description, tags: y.tags, endText: y.endText, endSub: y.endSub,
+      name, series: y.series, title: y.title, description: y.description, tags: y.tags, endText: y.endText, endSub: y.endSub, fb: y.fb, tiktok: y.tiktok,
       thumbTop: line1, thumbBottom: line2, thumbStyle: th, thumbExtra: extra, thumbStickers: stickers,
       thumbImg: img, thumbObj: obj, thumbBadge: badge.replace(/^part\s*\d+$/i, (m) => m.replace(/\d+/, '{n}')),
     };
@@ -1277,7 +1277,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
     setTemplates(list);
     setTpl(name);
-    setY((s: any) => ({...s, series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub}));
+    setY((s: any) => ({...s, series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub, fb: '', tiktok: ''}));
     setLine1(t.thumbTop);
     setLine2('');
     say(`Template "${name}" created. Edit the description and tags below, then press "💾 Save template".`);
@@ -1565,6 +1565,12 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
           Tags <input value={y.tags} onChange={(e) => set('tags', e.target.value)} />
         </label>
         <label>
+          Facebook caption <textarea rows={5} value={y.fb || ''} placeholder="{series} – Part {n} …" onChange={(e) => set('fb', e.target.value)} />
+        </label>
+        <label>
+          TikTok caption <textarea rows={3} value={y.tiktok || ''} placeholder="Short hook + hashtags (keep it under ~150 characters)" onChange={(e) => set('tiktok', e.target.value)} /> <span className="muted">{fill(y.tiktok || '').length} characters</span>
+        </label>
+        <label>
           End card text <input value={y.endText} onChange={(e) => set('endText', e.target.value)} /> <span className="muted">{'{next}'} = next part number. Shows as: {fill(y.endText)}</span>
         </label>
         <label>
@@ -1573,10 +1579,12 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
         <div className="row">
           <button className="primary" onClick={save}>Save</button>
         </div>
-        <h3>Ready to paste (Part {n})</h3>
+        <h3>YouTube (Part {n})</h3>
         <div className="ytout"><button className="small" onClick={() => copy(fill(y.title))}>Copy</button><b>{fill(y.title)}</b></div>
         <div className="ytout"><button className="small" onClick={() => copy(fill(y.description))}>Copy</button><pre>{fill(y.description)}</pre></div>
         <div className="ytout"><button className="small" onClick={() => copy(fill(y.tags))}>Copy</button><span>{fill(y.tags)}</span></div>
+        {y.fb && (<><h3>Facebook</h3><div className="ytout"><button className="small" onClick={() => copy(fill(y.fb))}>Copy</button><pre>{fill(y.fb)}</pre></div></>)}
+        {y.tiktok && (<><h3>TikTok</h3><div className="ytout"><button className="small" onClick={() => copy(fill(y.tiktok))}>Copy</button><pre>{fill(y.tiktok)}</pre></div></>)}
       </div>
       <div className="help" style={{width: 440}}>
         <h3>Thumbnail</h3>
