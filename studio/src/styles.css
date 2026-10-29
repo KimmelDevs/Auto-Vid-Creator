@@ -188,3 +188,13 @@ button.insert:hover { opacity: 1; border-color: var(--accent); color: var(--acce
 .subtabs { display: inline-flex; margin-bottom: 12px; }
 .chars .form { max-width: 760px; }
 .chars .flabel { font-weight: 600; width: 220px; }
+
+/* notes: list of notes on the left, the open note on the right */
+.nt { display: flex; gap: 14px; flex: 1; min-height: 0; }
+.nt-list { width: 260px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.nt-list > button:not(.primary) { text-align: left; white-space: normal; font-size: 13px; padding: 6px 10px; }
+.nt-list > button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.nt-list input { margin: 4px 0; }
+.nt-edit { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.nt-edit textarea { flex: 1; min-height: 360px; }
+.nt-title { flex: 1; font-weight: 700; font-size: 16px; }

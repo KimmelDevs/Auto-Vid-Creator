@@ -1951,26 +1951,80 @@ const Notes: React.FC<{say: (m: string) => void}> = ({say}) => {
     clearTimeout(t.current);
     t.current = setTimeout(() => api('/api/notes', {method: 'PUT', body: {text: s}}).then(() => setSaved(true)), 700);
   };
-  const copySection = (title: string) => {
-    const m = (text || '').split(/^## /m).find((s) => s.startsWith(title));
-    if (m) navigator.clipboard.writeText(m.split('\n').slice(1).join('\n').trim()).then(() => say('Copied'));
+  // notes.md is split into notes at every "## " heading; the text before the first heading is kept as is
+  const parts = (text || '').split(/^## /m);
+  const head = parts[0];
+  const notes = parts.slice(1).map((s) => {
+    const nl = s.indexOf('\n');
+    return {title: (nl < 0 ? s : s.slice(0, nl)).trim(), body: nl < 0 ? '' : s.slice(nl + 1).replace(/\s+$/, '')};
+  });
+  const join = (l: {title: string; body: string}[]) => head + l.map((n) => `## ${n.title}\n${n.body}\n`).join('\n');
+  const [sel, setSel] = useState(0);
+  const [raw, setRaw] = useState(false);
+  const [q, setQ] = useState('');
+  const setNotes = (l: typeof notes) => change(join(l));
+  const cur = notes[sel];
+  const edit = (p: Partial<{title: string; body: string}>) => setNotes(notes.map((n, i) => (i === sel ? {...n, ...p} : n)));
+  const add = () => {
+    const title = prompt('Name of the new note:')?.trim();
+    if (!title) return;
+    setNotes([...notes, {title, body: ''}]);
+    setSel(notes.length);
+    setQ('');
   };
-  const sections = (text || '').match(/^## .+$/gm) || [];
+  const del = () => {
+    if (!cur || !confirm(`Delete the note "${cur.title}"?`)) return;
+    setNotes(notes.filter((_, i) => i !== sel));
+    setSel(Math.max(0, sel - 1));
+  };
+  const move = (by: number) => {
+    const j = sel + by;
+    if (j < 0 || j >= notes.length) return;
+    const l = [...notes];
+    [l[sel], l[j]] = [l[j], l[sel]];
+    setNotes(l);
+    setSel(j);
+  };
+  const shown = notes.map((n, i) => ({...n, i})).filter((n) => !q || (n.title + n.body).toLowerCase().includes(q.toLowerCase()));
+  if (text === null) return null;
   return (
     <div className="notes">
       <header>
         <h2>Notes & prompts</h2>
         <span className="muted">{saved ? 'saved' : 'saving…'}</span>
+        <span className="spacer" />
+        <button className="small ghost" onClick={() => setRaw(!raw)}>{raw ? 'Back to notes' : 'Edit as one text'}</button>
       </header>
-      <div className="row wrap">
-        {sections.map((s) => (
-          <button key={s} className="small" onClick={() => copySection(s.slice(3))}>
-            Copy: {s.slice(3)}
-          </button>
-        ))}
-      </div>
-      <textarea value={text ?? ''} onChange={(e) => change(e.target.value)} spellCheck={false} />
-      <p className="muted">Start a line with "## " to make a section with its own copy button.</p>
+      {raw ? (
+        <>
+          <textarea value={text} onChange={(e) => change(e.target.value)} spellCheck={false} />
+          <p className="muted">Start a line with "## " to make a new note.</p>
+        </>
+      ) : (
+        <div className="nt">
+          <div className="nt-list">
+            <button className="primary" onClick={add}>+ New note</button>
+            <input placeholder="Search notes…" value={q} onChange={(e) => setQ(e.target.value)} />
+            {shown.map((n) => (
+              <button key={n.i} className={n.i === sel ? 'on' : ''} onClick={() => setSel(n.i)}>{n.title || '(no name)'}</button>
+            ))}
+          </div>
+          {cur ? (
+            <div className="nt-edit">
+              <div className="row tight">
+                <input className="nt-title" value={cur.title} onChange={(e) => edit({title: e.target.value.replace(/\n/g, ' ')})} />
+                <button className="primary" onClick={() => navigator.clipboard.writeText(cur.body.trim()).then(() => say('Copied'))}>📋 Copy</button>
+                <button className="small" onClick={() => move(-1)} disabled={sel === 0} title="Move up">↑</button>
+                <button className="small" onClick={() => move(1)} disabled={sel === notes.length - 1} title="Move down">↓</button>
+                <button className="small ghost" onClick={del}>Delete</button>
+              </div>
+              <textarea value={cur.body} onChange={(e) => edit({body: e.target.value})} spellCheck={false} placeholder="Write the note or prompt here…" />
+            </div>
+          ) : (
+            <p className="muted">No notes yet. Press "+ New note".</p>
+          )}
+        </div>
+      )}
     </div>
   );
 };

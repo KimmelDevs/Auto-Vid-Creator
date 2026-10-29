@@ -31,6 +31,37 @@ Dramatic, tense, frightening mood with quiet moments of warmth. Violence is only
 Pangaea mood line (add after the style):
 Dramatic, brutal, frightening prehistoric survival horror with quiet moments of warmth. Violence is shown clearly in an ink comic style: bites, claws, spears, torn clothing, blood splatter and blood trails in red are allowed, attacks can be shown mid-strike, but no exposed organs and no detailed anatomy.
 
+## Faces (paste after the art style)
+Every person has a clean, simple manga-doodle face in black ink: small solid oval eyes with a tiny white highlight, simple curved eyebrows, a short line for the nose and a short mouth line. Faces stay minimal (no realistic shading, no detailed lips or eyelashes) but clearly show the emotion of the moment: fear, anger, grief, relief, a small smile. Keep each character's face exactly the same in every image. Small or far-away figures may use just dots for eyes. Raiders keep their faces hidden by hoods and scarves.
+
+Bunker faces:
+ADA face = about fifteen; wide frightened eyes; thin face; long braid over one shoulder (mostly shown as a small icon in speech bubbles).
+JONAH face = late thirties; tired hooded eyes; heavy eyebrows; crooked nose; short dark stubble; deep lines across the forehead; rarely smiles.
+LENA face = early twenties; big round dark eyes; soft straight eyebrows; small nose; a small beauty mark under her left eye; bangs touching her eyebrows; expressive, easy to read.
+NIA face = late twenties; warm wide eyes; round face; light freckles across the cheeks; an easy, kind smile.
+RAIDERS face = no faces shown: hoods pulled low, eyes in shadow, lower face wrapped in a dark scarf.
+SCALED CREATURE face = reptile head; pale slit eyes; rows of needle teeth; flaring nostrils.
+VOSS face = long pale face; cold narrow eyes; thin lips; clean-shaven; a scar through his left eyebrow; calm, unreadable expression.
+YOU face = early twenties; narrow dark eyes with tired shadows under them; thick straight eyebrows usually pulled into a frown; sharp jaw; small scar on the chin; a crooked half-smile when he jokes.
+
+Pangaea faces:
+AUNT MIRA face = gentle tired eyes; thin face; soft worried mouth.
+CLAIRE face = big bright eyes; button nose; round cheeks.
+CYNTHIA face = sharp clever eyes; freckles; small determined mouth.
+DAX face = narrow eyes; permanent scowl; pinched mouth.
+FATHER face = deep-set eyes; heavy eyebrows; square jaw under a short dark beard; weathered face.
+GRANDPA face = sunken wise eyes; bushy white eyebrows; long white beard; hollow cheeks.
+JUBEL (YOU) face = big curious dark eyes that look older than his age; round face (baby or child, as the scene says); thoughtful, often serious eyebrows.
+KAEL face = weathered face; short beard; squinting hunter eyes.
+KESSA face = deeply wrinkled face; squinting eyes; a few missing teeth.
+LOLA (GRANDMA) face = crinkled kind eyes; deep smile lines; gentle smile; wrinkled cheeks.
+MIKE face = bright determined eyes; wide grin with a missing front tooth (as a child); eyebrows that shoot up when he is excited.
+MOTHER face = kind almond-shaped eyes; soft eyebrows; smile lines at the corners of her eyes; calm mouth.
+PELL face = big shy eyes; round cheeks; small mouth that barely speaks.
+ROOK face = sharp focused eyes; scar across one cheek; strong jaw; rarely smiles.
+TOMO face = big sad eyes; thin face; small pointed chin.
+UNCLE TARN face = small fierce eyes; broken nose; thick beard; loud wide mouth.
+
 ## DeepSeek: make a tagged SRT from a story
 1. Attach the sound list: C:\Users\Admin\OneDrive\Desktop\DCODE\Story Maker\sfx\SOUND_LIST.txt
    (all 2,218 sound paths; if it's missing or old, ask Claude to remake it)
