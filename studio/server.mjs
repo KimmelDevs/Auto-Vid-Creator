@@ -279,13 +279,7 @@ app.post('/api/projects/:id/images/:n', upload.single('file'), wrap((req) => {
   return {ok: true};
 }));
 
-// ---- insert / delete a whole storyboard image: later images and their [n.k] script tags move up or down by one
-// renumber pure object tags ([3], [3.2], [3-2]); fn returns the new image number, or null to drop the tag
-const renumberTags = (text, fn) =>
-  text.replace(/\[(\d+)(?:([.\-])(\d+))?\]/g, (m, a, sep, b) => {
-    const to = fn(Number(a));
-    return to == null ? '' : `[${to}${sep ? sep + b : ''}]`;
-  });
+// ---- insert / delete a whole storyboard image: later images move up or down by one (the script is not touched)
 // move every file named <n>.<ext> in dir to <n + by>.<ext>, for n >= from
 const shiftFiles = (dir, from, by) => {
   if (!fs.existsSync(dir)) return;
@@ -301,7 +295,6 @@ app.post('/api/projects/:id/images/:n/insert', wrap((req) => {
   if (!(n >= 1)) throw Object.assign(new Error('bad image number'), {status: 400});
   shiftFiles(path.join(d, 'images'), n, 1);
   shiftFiles(path.join(d, 'images_backup'), n, 1);
-  writeScript(d, renumberTags(readSource(d), (k) => (k >= n ? k + 1 : k)));
   return {ok: true};
 }));
 
@@ -326,7 +319,6 @@ app.post('/api/projects/:id/images/:n/delete', wrap((req) => {
   }
   shiftFiles(path.join(d, 'images'), n + 1, -1);
   shiftFiles(path.join(d, 'images_backup'), n + 1, -1);
-  writeScript(d, renumberTags(readSource(d), (k) => (k === n ? null : k > n ? k - 1 : k)));
   return {ok: true};
 }));
 

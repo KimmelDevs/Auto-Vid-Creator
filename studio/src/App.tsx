@@ -426,20 +426,19 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
       await uploadImg(m ? Number(m[1]) : next++, f);
     }
   };
-  // insert an empty storyboard before image n; later images and their script tags move up by one
+  // insert an empty storyboard before image n; later images move up by one (the script is not changed)
   const insertAt = async (n: number) => {
-    if (dirty && !confirm('You have unsaved effects. Insert anyway? (unsaved effects will be lost)')) return;
     try {
       await api(`/api/projects/${proj.id}/images/${n}/insert`, {method: 'POST'});
-      say(`New empty image ${n} added. Later images moved up by one (script tags too).`);
+      say(`New empty image ${n} added. Later images moved up by one.`);
       reload();
     } catch (e: any) {
       say(e.message);
     }
   };
-  // delete storyboard n; later images and their script tags move down by one
+  // delete storyboard n; later images move down by one (the script is not changed)
   const del = async (n: number) => {
-    if (!confirm(`Delete image ${n}?\n\nImages after it move down by one, and the [${n}.x] tags are taken out of the script (the words stay).\nThe picture is kept in images_backup/deleted.`)) return;
+    if (!confirm(`Delete image ${n}?\n\nImages after it move down by one. The script is not changed.\nThe picture is kept in images_backup/deleted.`)) return;
     try {
       await api(`/api/projects/${proj.id}/images/${n}/delete`, {method: 'POST'});
       say(`Image ${n} deleted`);
