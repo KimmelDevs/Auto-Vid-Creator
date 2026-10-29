@@ -673,7 +673,7 @@ const TOOLS: [Tool, string, string][] = [
   ['pen', '✏️ Pen', 'Draw lines'],
   ['white', '🧽 White brush', 'Paint white over anything'],
   ['box', '▭ Box', 'Drag to draw a box outline'],
-  ['whitebox', '⬜ White box', 'Drag to cover an area with white'],
+  ['whitebox', '⬛ Cover', 'Drag to cover an area with the chosen colour (pick white to hide things)'],
   ['swap', '🖼️ New picture', 'Click an object, then pick a file (or press Ctrl+V first to paste one)'],
   ['clear', '🗑️ Empty object', 'Click an object to make it blank white'],
   ['grab', '⬇️ Download object', 'Click an object to save just that box as a picture'],
@@ -778,7 +778,7 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
       const [x0, y0, x1, y1] = box;
       g.lineWidth = tool === 'box' ? size : 2;
       g.strokeStyle = tool === 'box' ? color : '#2f6fd1';
-      g.fillStyle = tool === 'whitebox' ? '#ffffffcc' : 'transparent';
+      g.fillStyle = tool === 'whitebox' ? color + 'cc' : 'transparent';
       g.fillRect(x0, y0, x1 - x0, y1 - y0);
       g.strokeRect(x0, y0, x1 - x0, y1 - y0);
     }
@@ -881,7 +881,7 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
     remember();
     const g = ctx();
     if (tool === 'whitebox') {
-      g.fillStyle = '#fff';
+      g.fillStyle = color;
       g.fillRect(d.x, d.y, p.x - d.x, p.y - d.y);
     } else {
       g.strokeStyle = color;
