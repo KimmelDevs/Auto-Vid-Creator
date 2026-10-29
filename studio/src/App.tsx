@@ -1222,6 +1222,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     setLine1(t.thumbTop || '');
     setLine2(t.thumbBottom || '');
     if (t.thumbStyle) tset(t.thumbStyle);
+    setExtra(t.thumbExtra || []);
     await saveWith(v, `"${t.name}" template used for Part ${n}`);
   };
   // asNew asks for a name; otherwise the selected template is updated in place
@@ -1230,7 +1231,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     if (!name) return;
     const t = {
       name, series: y.series, title: y.title, description: y.description, tags: y.tags, endText: y.endText, endSub: y.endSub,
-      thumbTop: line1, thumbBottom: line2, thumbStyle: {...th, zoom: 1, px: 0, py: 0},
+      thumbTop: line1, thumbBottom: line2, thumbStyle: {...th, zoom: 1, px: 0, py: 0}, thumbExtra: extra,
     };
     const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
     setTemplates(list);
@@ -1277,6 +1278,10 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   const tset = (p: Partial<typeof th>) => setTh((s) => ({...s, ...p}));
   const [stickers, setStickers] = useState<{kind: 'circle' | 'arrow'; x: number; y: number; s: number; rot: number}[]>([]);
   const [pick, setPick] = useState<number | null>(null);  // selected sticker
+  // extra text boxes beyond the top and bottom lines
+  type Txt = {text: string; x: number; y: number; size: number; color: string};
+  const [extra, setExtra] = useState<Txt[]>([]);
+  const setTxt = (i: number, p: Partial<Txt>) => setExtra((l) => l.map((t, k) => (k === i ? {...t, ...p} : t)));
   const [custom, setCustom] = useState<HTMLImageElement | null>(null);  // uploaded or pasted picture
   const [pic, setPic] = useState<HTMLImageElement | null>(null);
   const cv = useRef<HTMLCanvasElement>(null);
@@ -1378,6 +1383,8 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     };
     text('t1', line1, th.x1, th.y1, th.size1, th.color1);
     text('t2', line2, th.x2, th.y2, th.size2, th.color2);
+    for (const k of Object.keys(boxes.current)) if (k.startsWith('e')) delete boxes.current[k];
+    extra.forEach((t, i) => text(`e${i}`, t.text, t.x, t.y, t.size, t.color));
     if (badge.trim()) {
       // badge in a top corner, as wide as its text
       g.font = '900 46px "Segoe UI", Arial, sans-serif';
@@ -1391,7 +1398,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
       g.textAlign = 'center';
       g.fillText(badge.toUpperCase(), x + w / 2, 78);
     }
-  }, [pic, obj, custom, line1, line2, badge, th, stickers, pick, rows, cols]);
+  }, [pic, obj, custom, line1, line2, badge, th, stickers, pick, extra, rows, cols]);
   const at = (e: React.PointerEvent) => {
     const r = cv.current!.getBoundingClientRect();
     return [((e.clientX - r.left) / r.width) * 1280, ((e.clientY - r.top) / r.height) * 720];
@@ -1409,11 +1416,11 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
       return;
     }
     setPick(null);
-    for (const k of ['t2', 't1']) {
+    for (const k of [...extra.map((_, i) => `e${i}`).reverse(), 't2', 't1']) {
       const b = boxes.current[k];
       if (b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) {
-        const i = k === 't1' ? 1 : 2;
-        grab.current = {what: k, dx: x - (th as any)[`x${i}`], dy: y - (th as any)[`y${i}`]};
+        const [ox, oy] = k[0] === 'e' ? [extra[Number(k.slice(1))].x, extra[Number(k.slice(1))].y] : [(th as any)[`x${k[1]}`], (th as any)[`y${k[1]}`]];
+        grab.current = {what: k, dx: x - ox, dy: y - oy};
         return;
       }
     }
@@ -1426,6 +1433,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     if (gr.what === 'pic') tset({px: x - gr.dx, py: y - gr.dy});
     else if (gr.what === 't1') tset({x1: x - gr.dx, y1: y - gr.dy});
     else if (gr.what === 't2') tset({x2: x - gr.dx, y2: y - gr.dy});
+    else if (gr.what[0] === 'e') setTxt(Number(gr.what.slice(1)), {x: x - gr.dx, y: y - gr.dy});
     else {
       const i = Number(gr.what.slice(1));
       setStickers((l) => l.map((s, k) => (k === i ? {...s, x: x - gr.dx, y: y - gr.dy} : s)));
@@ -1440,9 +1448,62 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   const resetThumb = () => {
     tset({zoom: 1, px: 0, py: 0, size1: 84, size2: 84, x1: 640, y1: 120, x2: 640, y2: 670, fade: 0, bg: '#ffffff'});
     setStickers([]);
+    setExtra([]);
     setPick(null);
     setCustom(null);
   };
+  // undo / redo: every settled change to the thumbnail is remembered (a drag counts once, when it ends)
+  const [dragEnd, setDragEnd] = useState(0);
+  const hist = useRef<{past: any[]; future: any[]; cur: any}>({past: [], future: [], cur: null});
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (grab.current) return;
+    const id = setTimeout(() => {
+      const now = {th, stickers, line1, line2, badge, extra};
+      const h = hist.current;
+      if (h.cur && JSON.stringify(h.cur) === JSON.stringify(now)) return;
+      if (h.cur) h.past = [...h.past.slice(-49), h.cur];
+      h.cur = now;
+      h.future = [];
+      bump((x) => x + 1);
+    }, 350);
+    return () => clearTimeout(id);
+  }, [th, stickers, line1, line2, badge, extra, dragEnd]);
+  const restoreSnap = (s: any) => {
+    setTh(s.th);
+    setStickers(s.stickers);
+    setLine1(s.line1);
+    setLine2(s.line2);
+    setBadge(s.badge);
+    setExtra(s.extra || []);
+    setPick(null);
+    bump((x) => x + 1);
+  };
+  const undoThumb = () => {
+    const h = hist.current;
+    if (!h.past.length) return;
+    h.future = [h.cur, ...h.future];
+    h.cur = h.past.pop();
+    restoreSnap(h.cur);
+  };
+  const redoThumb = () => {
+    const h = hist.current;
+    if (!h.future.length) return;
+    h.past = [...h.past, h.cur];
+    h.cur = h.future.shift();
+    restoreSnap(h.cur);
+  };
+  // Ctrl+Z / Ctrl+Y (text boxes keep their own undo)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement)?.tagName?.match(/INPUT|TEXTAREA|SELECT/)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) (e.preventDefault(), undoThumb());
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) (e.preventDefault(), redoThumb());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   const SWATCH = ['#ffffff', '#ffd23f', '#ff3b2f', '#4cd964', '#3fa9ff', '#111111'];
   const download = () => {
     const a = document.createElement('a');
@@ -1506,7 +1567,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
             }} />
           </label>
         </div>
-        <canvas ref={cv} width={1280} height={720} className="th-canvas" onPointerDown={tDown} onPointerMove={tMove} onPointerUp={() => (grab.current = null)} />
+        <canvas ref={cv} width={1280} height={720} className="th-canvas" onPointerDown={tDown} onPointerMove={tMove} onPointerUp={() => ((grab.current = null), setDragEnd((x) => x + 1))} />
         <p className="muted">Drag the picture, the text or a sticker to move it. Ctrl+V pastes a picture.</p>
         <div className="th-grid">
           <span>Zoom</span>
@@ -1527,6 +1588,21 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
             </div>
           </div>
         ))}
+        {extra.map((t, i) => (
+          <div key={i} className="th-line">
+            <div className="row tight">
+              <input style={{flex: 1}} placeholder={`Text ${i + 3}`} value={t.text} onChange={(e) => setTxt(i, {text: e.target.value})} />
+              <button className="small ghost" onClick={() => setExtra((l) => l.filter((_, k) => k !== i))}>Remove</button>
+            </div>
+            <div className="row tight">
+              {SWATCH.map((c) => <button key={c} className={`ed-color${t.color === c ? ' on' : ''}`} style={{background: c}} onClick={() => setTxt(i, {color: c})} />)}
+              <input type="range" min={30} max={160} value={t.size} title="Text size" onChange={(e) => setTxt(i, {size: Number(e.target.value)})} />
+            </div>
+          </div>
+        ))}
+        <div className="row tight">
+          <button className="small" onClick={() => setExtra((l) => [...l, {text: 'NEW TEXT', x: 640, y: 380 + (l.length % 3) * 70, size: 64, color: '#ffffff'}])}>+ Add text</button>
+        </div>
         <div className="th-line">
           <input placeholder="Badge, empty = no badge" value={badge} onChange={(e) => setBadge(e.target.value)} />
           <div className="row tight">
@@ -1548,6 +1624,8 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
         </div>
         <div className="row">
           <button className="primary" onClick={download} disabled={!pic}>Download thumbnail</button>
+          <button className="small" onClick={undoThumb} disabled={!hist.current.past.length} title="Ctrl+Z">↶ Undo</button>
+          <button className="small" onClick={redoThumb} disabled={!hist.current.future.length} title="Ctrl+Y">↷ Redo</button>
           <button className="small ghost" onClick={resetThumb}>Reset</button>
         </div>
       </div>
