@@ -173,14 +173,20 @@ const FocusView: React.FC<{t: number; job: Job}> = ({t, job}) => {
   for (const f of active(job.fx, 'heartbeat', t, 3)) zoom *= 1 + 0.03 * Math.max(0, Math.sin((t - f.t) * 2 * Math.PI * 1.2)) ** 6;
   const [sx, sy] = shakeAt(t, job.fx);
   const jx = (rnd(Math.floor(t * 8) + 99) - 0.5) * 2.5;
+  // keep the current and next image decoded, so a new image never starts before it has loaded
+  const preload = [...new Set([cur.src, shots[i + 1]?.src].filter(Boolean))] as string[];
   return (
     <AbsoluteFill style={{background: '#fff', transform: `translate(${sx + jx}px, ${sy}px)`}}>
+      {preload.map((src) => (
+        <Img key={src} src={staticFile(`${job.dir}/${src}`)} style={{position: 'absolute', width: 1, height: 1, opacity: 0}} />
+      ))}
       {prev && out < 1 ? (
         <AbsoluteFill style={{transform: `translateX(${-out * 520}px) scale(${1 - 0.08 * out})`, opacity: 1 - out}}>
-          <ShotView s={{...prev, start: -10}} t={t} job={job} id={`f${i - 1}`} whole={0} zoom={1.05} />
+          <ShotView key={`p${i - 1}`} s={{...prev, start: -10}} t={t} job={job} id={`f${i - 1}`} whole={0} zoom={1.05} />
         </AbsoluteFill>
       ) : null}
-      <ShotView s={cur} t={t} job={job} id={`f${i}`} whole={whole} zoom={zoom} />
+      {/* keyed per object: reusing the element when the image file changes briefly showed the old image in the new crop */}
+      <ShotView key={`c${i}`} s={cur} t={t} job={job} id={`f${i}`} whole={whole} zoom={zoom} />
     </AbsoluteFill>
   );
 };
