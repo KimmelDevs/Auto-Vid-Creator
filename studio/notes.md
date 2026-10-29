@@ -16,6 +16,19 @@
 - Duplicate (next to the project name) copies settings, music, end card and YouTube text to the next part.
 - YouTube tab: title/description/tags templates with {series} and {n}, plus a thumbnail maker.
 
+## Art style (paste at the top of every image prompt)
+Generate an image. Minimalist hand-drawn sketch illustration, pure black ink pen sketch style, restrained Notion-like doodle aesthetic. Concept-driven, not realistic. Pure clean white background (#FFFFFF), crisp black ink lines. Manga-influenced black ink line art with light gray tones. Clothes and skin are ink and gray only, never brown or colored. Use only flat touches of red, orange and blue as accents (red for blood, impact bursts and claw marks; orange for alarms, light and sound lines; blue for water and sweat). No other colors, no gradients, no textures, no 3D, no photographic detail. Simple outlines, a few lines per object, lots of empty space. All humans are simple faceless figures. 16:9 landscape. Absolutely NO text, letters, numbers, words, labels, question marks, exclamation marks or equals signs anywhere in the image (signs, screens, maps and pages stay blank or use simple icons). This is one panel of a fictional storyboard, drawn in a cartoon doodle style.
+
+Layout: 6 separate objects in two rows of three, with wide empty space between every object so none overlap or touch. Every object stays fully inside its own cell. Reading order: top row left to right, then bottom row left to right.
+
+Characters: only draw the characters named in CAPITALS in each object; an object that names no one contains no people at all. Do not add any other people or extra animals. (Character looks are in the studio: 1. Script > Characters > Copy for prompt.)
+
+Bunker mood line (add after the style):
+Dramatic, tense, frightening mood with quiet moments of warmth. Violence is only suggested: guns, gunfire bursts, shoves, punches, bruises, small cuts and small red bloodstains are allowed, but no detailed wounds and no gore. Outdoor scenes show open sky and ground only, never bunker walls, pipes or bunks.
+
+Pangaea mood line (add after the style):
+Dramatic, brutal, frightening prehistoric survival horror with quiet moments of warmth. Violence is shown clearly in an ink comic style: bites, claws, spears, torn clothing, blood splatter and blood trails in red are allowed, attacks can be shown mid-strike, but no exposed organs and no detailed anatomy.
+
 ## DeepSeek: make a tagged SRT from a story
 1. Attach the sound list: C:\Users\Admin\OneDrive\Desktop\DCODE\Story Maker\sfx\SOUND_LIST.txt
    (all 2,218 sound paths; if it's missing or old, ask Claude to remake it)
