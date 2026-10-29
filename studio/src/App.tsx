@@ -547,7 +547,7 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
 
 // ---------- image editor ----------
 // Draw on a storyboard image, cover things with white, or swap one object for a new picture.
-type Tool = 'pen' | 'white' | 'box' | 'whitebox' | 'swap' | 'clear';
+type Tool = 'pen' | 'white' | 'box' | 'whitebox' | 'swap' | 'clear' | 'grab';
 const TOOLS: [Tool, string, string][] = [
   ['pen', '✏️ Pen', 'Draw lines'],
   ['white', '🧽 White brush', 'Paint white over anything'],
@@ -555,6 +555,7 @@ const TOOLS: [Tool, string, string][] = [
   ['whitebox', '⬜ White box', 'Drag to cover an area with white'],
   ['swap', '🖼️ New picture', 'Click an object, then pick a file (or press Ctrl+V first to paste one)'],
   ['clear', '🗑️ Empty object', 'Click an object to make it blank white'],
+  ['grab', '⬇️ Download object', 'Click an object to save just that box as a picture'],
 ];
 const COLORS = ['#111111', '#d6402f', '#f08a24', '#2f6fd1', '#ffffff'];
 
@@ -637,7 +638,7 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
     const c = over.current!;
     const g = c.getContext('2d')!;
     g.clearRect(0, 0, c.width, c.height);
-    if (tool === 'swap' || tool === 'clear') {
+    if (tool === 'swap' || tool === 'clear' || tool === 'grab') {
       g.setLineDash([12, 8]);
       g.lineWidth = 3;
       for (let i = 0; i < rows * cols; i++) {
@@ -684,11 +685,25 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
     img.src = URL.createObjectURL(f);
   };
 
+  // save one object box (with any unsaved edits) as its own PNG
+  const downloadCell = (i: number) => {
+    const [x, y, w, h] = cellRect(i).map(Math.round);
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    c.getContext('2d')!.drawImage(main.current!, x, y, w, h, 0, 0, w, h);
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = `${proj.id}_${n}.${i + 1}.png`;
+    a.click();
+  };
   const down = (e: React.PointerEvent) => {
     const p = pos(e);
-    if (tool === 'swap' || tool === 'clear') {
+    if (tool === 'swap' || tool === 'clear' || tool === 'grab') {
       const i = cellAt(p);
-      if (tool === 'clear') {
+      if (tool === 'grab') {
+        downloadCell(i);
+      } else if (tool === 'clear') {
         remember();
         const [x, y, w, h] = cellRect(i);
         ctx().fillStyle = '#fff';
@@ -720,7 +735,7 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
   };
   const move = (e: React.PointerEvent) => {
     const p = pos(e);
-    if (tool === 'swap' || tool === 'clear') {
+    if (tool === 'swap' || tool === 'clear' || tool === 'grab') {
       const i = cellAt(p);
       if (i !== hover) setHover(i);
       return;
@@ -807,6 +822,7 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
         <span className="ed-sep" />
         <button onClick={back} disabled={!undo.current.length}>↶ Undo</button>
         <button className="primary" onClick={save} disabled={!dirty}>💾 Save</button>
+        <button className="small" onClick={() => Array.from({length: rows * cols}, (_, i) => setTimeout(() => downloadCell(i), i * 300))} title="Save every box of this image as its own picture">⬇️ All objects</button>
         <button className="small ghost" onClick={restore}>Restore original</button>
       </div>
       <p className="muted">

@@ -168,7 +168,7 @@ section { padding: 20px 24px 60px; }
 .ed-stage { position: relative; border: 1px solid #ddd; background: #fff; line-height: 0; }
 .ed-stage canvas { width: 100%; height: auto; display: block; }
 .ed-over { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
-.ed-swap, .ed-clear { cursor: pointer; }
+.ed-swap, .ed-clear, .ed-grab { cursor: pointer; }
 
 /* thumbnail maker */
 .th-canvas { width: 100%; border: 1px solid var(--line); border-radius: 6px; cursor: grab; touch-action: none; display: block; }
