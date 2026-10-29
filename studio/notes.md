@@ -132,6 +132,15 @@ remove all text, letters, numbers and symbols, keep everything else the same
 ## Fix: objects touching or overlapping
 more empty space between objects, two rows of three, every object fully inside its own cell
 
+## Fix: comic panels instead of 6 objects (uneven boxes, full backgrounds)
+When ChatGPT draws a comic page (one wide panel, others squeezed, backgrounds filling every box edge to edge), the video cuts the objects in the wrong places. Reply with:
+
+Redo this image with the same 6 scenes, same characters and same art style, but change the layout: exactly 6 objects of EQUAL size in a strict grid of two rows of three, like a 3x2 table. Each object is a small separate drawing centred in its own cell, surrounded by plain white (#FFFFFF), with wide white gaps between all objects. No panel borders, no frames, and no background that reaches the edge of a cell. Nothing may cross into another cell. Keep the reading order: top row left to right, then bottom row left to right. No text anywhere.
+
+Also check before you accept it:
+- Wide scenes (like a whole-bunker cutaway) must still fit in one equal cell. Make that one image on its own if it needs the full width.
+- Hands and sleeves belong to the right person (Lena: light grey sleeve; you: black jacket sleeve).
+
 ## Fix: blocked by content policy
 Same image, but show the violence a little less directly: keep the blood splatter and claw marks, but no wounds.
 
