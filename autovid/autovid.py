@@ -455,7 +455,8 @@ def build(folder, name=None, render=False, out=None, short=False):
     # ---- [bg:photo.jpg] full-screen photos from <folder>/broll, shown with slow zoom/pan (no grid images needed)
     bgs = []
     for wi, (kind, arg), _ in tags:
-        if kind != 'bg' or not arg:
+        # "photos": false in config.json ignores every [bg:] tag (plain kinetic text, centered)
+        if kind != 'bg' or not arg or cfg.get('photos') is False:
             continue
         # "broll_dir" in config.json lets several projects (e.g. language versions) share one photo folder
         f = (folder / cfg['broll_dir'] if cfg.get('broll_dir') else folder / 'broll') / arg
