@@ -169,3 +169,13 @@ section { padding: 20px 24px 60px; }
 .ed-stage canvas { width: 100%; height: auto; display: block; }
 .ed-over { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
 .ed-swap, .ed-clear { cursor: pointer; }
+
+/* thumbnail maker */
+.th-canvas { width: 100%; border: 1px solid var(--line); border-radius: 6px; cursor: grab; touch-action: none; display: block; }
+.th-canvas:active { cursor: grabbing; }
+.th-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin: 8px 0; font-size: 13px; }
+.th-line { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.th-line > input { width: 100%; }
+.row.tight { gap: 6px; margin-bottom: 6px; }
+.row.tight .ed-color { width: 22px; height: 22px; }
+.row.tight input[type=range] { flex: 1; min-width: 80px; }

@@ -1218,16 +1218,38 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     setY(v);
     setLine1(t.thumbTop || '');
     setLine2(t.thumbBottom || '');
+    if (t.thumbStyle) tset(t.thumbStyle);
     await saveWith(v, `"${t.name}" template used for Part ${n}`);
   };
-  const saveTemplate = async () => {
-    const name = prompt('Template name:', tpl || y.series || 'My series')?.trim();
+  // asNew asks for a name; otherwise the selected template is updated in place
+  const saveTemplate = async (asNew = true) => {
+    const name = asNew ? prompt('Template name:', tpl || y.series || 'My series')?.trim() : tpl;
     if (!name) return;
-    const t = {name, series: y.series, title: y.title, description: y.description, tags: y.tags, endText: y.endText, endSub: y.endSub, thumbTop: line1, thumbBottom: line2};
+    const t = {
+      name, series: y.series, title: y.title, description: y.description, tags: y.tags, endText: y.endText, endSub: y.endSub,
+      thumbTop: line1, thumbBottom: line2, thumbStyle: {...th, zoom: 1, px: 0, py: 0},
+    };
     const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
     setTemplates(list);
     setTpl(name);
     say(`Template "${name}" saved`);
+  };
+  // new blank template for a new series: loads into the page so it can be filled in, then "Save as template"
+  const createTemplate = async () => {
+    const name = prompt('New template name (e.g. Zombie school):')?.trim();
+    if (!name) return;
+    const series = prompt('Series title (used in the video title):', name)?.trim() || name;
+    const t = {
+      name, series, title: YT_DEFAULT.title, description: YT_DEFAULT.description, tags: YT_DEFAULT.tags,
+      endText: 'Part {next} coming next...', endSub: "Subscribe so you don't miss it!", thumbTop: series, thumbBottom: '',
+    };
+    const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
+    setTemplates(list);
+    setTpl(name);
+    setY((s: any) => ({...s, series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub}));
+    setLine1(t.thumbTop);
+    setLine2('');
+    say(`Template "${name}" created. Edit the description and tags below, then press "💾 Save template".`);
   };
   const deleteTemplate = async () => {
     if (!tpl || !confirm(`Delete the "${tpl}" template?`)) return;
@@ -1242,56 +1264,183 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   const [line1, setLine1] = useState('');
   const [line2, setLine2] = useState('');
   const [badge, setBadge] = useState(`Part ${n}`);
+  const [th, setTh] = useState({
+    zoom: 1, px: 0, py: 0,                      // picture zoom and pan (canvas px)
+    size1: 84, size2: 84, color1: '#ffffff', color2: '#ffd23f',
+    x1: 640, y1: 120, x2: 640, y2: 670,         // text positions (drag them on the picture)
+    badgeColor: '#d6402f', badgeLeft: false,
+    bg: '#ffffff', fade: 0,                     // background colour, dark fade at top and bottom
+  });
+  const tset = (p: Partial<typeof th>) => setTh((s) => ({...s, ...p}));
+  const [stickers, setStickers] = useState<{kind: 'circle' | 'arrow'; x: number; y: number; s: number; rot: number}[]>([]);
+  const [pick, setPick] = useState<number | null>(null);  // selected sticker
+  const [custom, setCustom] = useState<HTMLImageElement | null>(null);  // uploaded or pasted picture
+  const [pic, setPic] = useState<HTMLImageElement | null>(null);
   const cv = useRef<HTMLCanvasElement>(null);
+  const boxes = useRef<Record<string, number[]>>({});
+  const grab = useRef<{what: string; dx: number; dy: number} | null>(null);
   const [rows, cols] = proj.config.grid || [2, 3];
   useEffect(() => {
-    const c = cv.current;
+    if (custom) return setPic(custom);
     const src = proj.images.find((i) => i.n === img)?.url;
-    if (!c || !src) return;
-    const g = c.getContext('2d')!;
+    if (!src) return;
     const im = new Image();
-    im.onload = () => {
-      g.fillStyle = '#fff';
-      g.fillRect(0, 0, 1280, 720);
-      let sx = 0, sy = 0, sw = im.width, sh = im.height;
-      if (obj > 0) {
-        sw = im.width / cols;
-        sh = im.height / rows;
-        sx = ((obj - 1) % cols) * sw;
-        sy = Math.floor((obj - 1) / cols) * sh;
-      }
-      const sc = Math.min(1280 / sw, 720 / sh);
-      g.drawImage(im, sx, sy, sw, sh, (1280 - sw * sc) / 2, (720 - sh * sc) / 2, sw * sc, sh * sc);
-      const text = (t: string, yy: number, size: number, fill: string) => {
-        if (!t) return;
-        // shrink until it fits the 1280 px width
-        g.font = `900 ${size}px "Segoe UI", Arial, sans-serif`;
-        while (size > 30 && g.measureText(t.toUpperCase()).width > 1180) g.font = `900 ${(size -= 4)}px "Segoe UI", Arial, sans-serif`;
-        g.textAlign = 'center';
-        g.lineJoin = 'round';
-        g.lineWidth = size * 0.22;
-        g.strokeStyle = '#111';
-        g.strokeText(t.toUpperCase(), 640, yy);
-        g.fillStyle = fill;
-        g.fillText(t.toUpperCase(), 640, yy);
-      };
-      text(line1, 120, 84, '#fff');
-      text(line2, 670, 84, '#ffd23f');
-      if (badge.trim()) {
-        // red badge top-right, as wide as its text
-        g.font = '900 46px "Segoe UI", Arial, sans-serif';
-        const w = g.measureText(badge.toUpperCase()).width + 48;
-        g.fillStyle = '#d6402f';
-        g.beginPath();
-        (g as any).roundRect?.(1256 - w, 24, w, 74, 14);
-        g.fill();
-        g.fillStyle = '#fff';
-        g.textAlign = 'center';
-        g.fillText(badge.toUpperCase(), 1256 - w / 2, 78);
-      }
-    };
+    im.onload = () => setPic(im);
     im.src = src;
-  }, [img, obj, line1, line2, badge, proj.images, rows, cols]);
+  }, [img, proj.images, custom]);
+  // Ctrl+V a picture while on this tab to use it for the thumbnail
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/'));
+      if (!f || (e.target as HTMLElement)?.tagName?.match(/INPUT|TEXTAREA/)) return;
+      const im = new Image();
+      im.onload = () => (setCustom(im), tset({zoom: 1, px: 0, py: 0}), say('Pasted picture is now the thumbnail background'));
+      im.src = URL.createObjectURL(f);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [say]);
+  useEffect(() => {
+    const c = cv.current;
+    if (!c || !pic) return;
+    const g = c.getContext('2d')!;
+    g.fillStyle = th.bg;
+    g.fillRect(0, 0, 1280, 720);
+    let sx = 0, sy = 0, sw = pic.width, sh = pic.height;
+    if (obj > 0 && !custom) {
+      sw = pic.width / cols;
+      sh = pic.height / rows;
+      sx = ((obj - 1) % cols) * sw;
+      sy = Math.floor((obj - 1) / cols) * sh;
+    }
+    const sc = Math.min(1280 / sw, 720 / sh) * th.zoom;
+    g.drawImage(pic, sx, sy, sw, sh, (1280 - sw * sc) / 2 + th.px, (720 - sh * sc) / 2 + th.py, sw * sc, sh * sc);
+    if (th.fade > 0) {
+      for (const [y0, y1] of [[0, 260], [720, 460]]) {
+        const gr = g.createLinearGradient(0, y0, 0, y1);
+        gr.addColorStop(0, `rgba(0,0,0,${th.fade})`);
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = gr;
+        g.fillRect(0, Math.min(y0, y1), 1280, 260);
+      }
+    }
+    for (const [i, st] of stickers.entries()) {
+      g.save();
+      g.translate(st.x, st.y);
+      g.rotate((st.rot * Math.PI) / 180);
+      g.strokeStyle = '#ff2a1a';
+      g.fillStyle = '#ff2a1a';
+      g.lineWidth = st.s * 0.12;
+      g.lineCap = g.lineJoin = 'round';
+      if (st.kind === 'circle') {
+        g.beginPath();
+        g.ellipse(0, 0, st.s, st.s * 0.8, 0, 0, Math.PI * 2);
+        g.stroke();
+      } else {
+        // arrow pointing right; rotate it with the Turn button
+        g.beginPath();
+        g.moveTo(-st.s, 0);
+        g.lineTo(st.s * 0.45, 0);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(st.s, 0);
+        g.lineTo(st.s * 0.3, -st.s * 0.45);
+        g.lineTo(st.s * 0.3, st.s * 0.45);
+        g.closePath();
+        g.fill();
+      }
+      if (i === pick) {
+        g.setLineDash([8, 6]);
+        g.lineWidth = 2;
+        g.strokeStyle = '#2f6fd1';
+        g.strokeRect(-st.s * 1.15, -st.s * 1.15, st.s * 2.3, st.s * 2.3);
+      }
+      g.restore();
+    }
+    const text = (key: string, t: string, x: number, yy: number, size: number, fill: string) => {
+      if (!t) return void delete boxes.current[key];
+      // shrink until it fits the 1280 px width
+      const T = t.toUpperCase();
+      g.font = `900 ${size}px "Segoe UI", Arial, sans-serif`;
+      while (size > 30 && g.measureText(T).width > 1180) g.font = `900 ${(size -= 4)}px "Segoe UI", Arial, sans-serif`;
+      g.textAlign = 'center';
+      g.lineJoin = 'round';
+      g.lineWidth = size * 0.22;
+      g.strokeStyle = '#111';
+      g.strokeText(T, x, yy);
+      g.fillStyle = fill;
+      g.fillText(T, x, yy);
+      const w = g.measureText(T).width;
+      boxes.current[key] = [x - w / 2, yy - size, x + w / 2, yy + size * 0.25];
+    };
+    text('t1', line1, th.x1, th.y1, th.size1, th.color1);
+    text('t2', line2, th.x2, th.y2, th.size2, th.color2);
+    if (badge.trim()) {
+      // badge in a top corner, as wide as its text
+      g.font = '900 46px "Segoe UI", Arial, sans-serif';
+      const w = g.measureText(badge.toUpperCase()).width + 48;
+      const x = th.badgeLeft ? 24 : 1256 - w;
+      g.fillStyle = th.badgeColor;
+      g.beginPath();
+      (g as any).roundRect?.(x, 24, w, 74, 14);
+      g.fill();
+      g.fillStyle = '#fff';
+      g.textAlign = 'center';
+      g.fillText(badge.toUpperCase(), x + w / 2, 78);
+    }
+  }, [pic, obj, custom, line1, line2, badge, th, stickers, pick, rows, cols]);
+  const at = (e: React.PointerEvent) => {
+    const r = cv.current!.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * 1280, ((e.clientY - r.top) / r.height) * 720];
+  };
+  // drag a sticker, a text line, or (anywhere else) the picture
+  const tDown = (e: React.PointerEvent) => {
+    const [x, y] = at(e);
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
+    const si = stickers.findIndex((s) => Math.hypot(s.x - x, s.y - y) < s.s * 1.2);
+    if (si >= 0) {
+      setPick(si);
+      grab.current = {what: `s${si}`, dx: x - stickers[si].x, dy: y - stickers[si].y};
+      return;
+    }
+    setPick(null);
+    for (const k of ['t2', 't1']) {
+      const b = boxes.current[k];
+      if (b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) {
+        const i = k === 't1' ? 1 : 2;
+        grab.current = {what: k, dx: x - (th as any)[`x${i}`], dy: y - (th as any)[`y${i}`]};
+        return;
+      }
+    }
+    grab.current = {what: 'pic', dx: x - th.px, dy: y - th.py};
+  };
+  const tMove = (e: React.PointerEvent) => {
+    const gr = grab.current;
+    if (!gr) return;
+    const [x, y] = at(e);
+    if (gr.what === 'pic') tset({px: x - gr.dx, py: y - gr.dy});
+    else if (gr.what === 't1') tset({x1: x - gr.dx, y1: y - gr.dy});
+    else if (gr.what === 't2') tset({x2: x - gr.dx, y2: y - gr.dy});
+    else {
+      const i = Number(gr.what.slice(1));
+      setStickers((l) => l.map((s, k) => (k === i ? {...s, x: x - gr.dx, y: y - gr.dy} : s)));
+    }
+  };
+  const addSticker = (kind: 'circle' | 'arrow') => {
+    setStickers((l) => [...l, {kind, x: 640, y: 380, s: kind === 'circle' ? 110 : 90, rot: kind === 'arrow' ? 135 : 0}]);
+    setPick(stickers.length);
+  };
+  const editSticker = (f: (s: (typeof stickers)[0]) => (typeof stickers)[0] | null) =>
+    pick != null && setStickers((l) => l.flatMap((s, k) => (k === pick ? [f(s)].filter(Boolean) as any : [s])));
+  const resetThumb = () => {
+    tset({zoom: 1, px: 0, py: 0, size1: 84, size2: 84, x1: 640, y1: 120, x2: 640, y2: 670, fade: 0, bg: '#ffffff'});
+    setStickers([]);
+    setPick(null);
+    setCustom(null);
+  };
+  const SWATCH = ['#ffffff', '#ffd23f', '#ff3b2f', '#4cd964', '#3fa9ff', '#111111'];
   const download = () => {
     const a = document.createElement('a');
     a.href = cv.current!.toDataURL('image/png');
@@ -1307,7 +1456,9 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
             {templates.map((t) => <option key={t.name}>{t.name}</option>)}
           </select>
           <button className="primary" onClick={useTemplate} disabled={!tpl}>Use template</button>
-          <button className="small" onClick={saveTemplate} title="Save what is on this page as a template">Save as template</button>
+          <button className="small" onClick={createTemplate} title="Start a new template for a new series">+ Create template</button>
+          <button className="small" onClick={() => saveTemplate(false)} disabled={!tpl} title="Save the changes on this page into the selected template">💾 Save template</button>
+          <button className="small" onClick={() => saveTemplate(true)} title="Save what is on this page as a new template">Save as new</button>
           <button className="small ghost" onClick={deleteTemplate} disabled={!tpl}>Delete</button>
         </div>
         <label>
@@ -1339,14 +1490,63 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
       <div className="help" style={{width: 440}}>
         <h3>Thumbnail</h3>
         <div className="row">
-          <label>Image <select value={img} onChange={(e) => setImg(Number(e.target.value))}>{proj.images.map((i) => <option key={i.n} value={i.n}>{i.n}</option>)}</select></label>
-          <label>Object <select value={obj} onChange={(e) => setObj(Number(e.target.value))}><option value={0}>whole</option>{Array.from({length: rows * cols}, (_, i) => <option key={i} value={i + 1}>{img}.{i + 1}</option>)}</select></label>
+          <label>Image <select value={img} onChange={(e) => (setImg(Number(e.target.value)), setCustom(null))}>{proj.images.map((i) => <option key={i.n} value={i.n}>{i.n}</option>)}</select></label>
+          <label>Object <select value={obj} onChange={(e) => (setObj(Number(e.target.value)), setCustom(null), tset({zoom: 1, px: 0, py: 0}))}><option value={0}>whole</option>{Array.from({length: rows * cols}, (_, i) => <option key={i} value={i + 1}>{img}.{i + 1}</option>)}</select></label>
+          <label className="btn small">
+            Own picture
+            <input type="file" accept="image/*" hidden onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              const im = new Image();
+              im.onload = () => (setCustom(im), tset({zoom: 1, px: 0, py: 0}));
+              im.src = URL.createObjectURL(f);
+            }} />
+          </label>
         </div>
-        <input placeholder="Top text (e.g. DIED IN A FLOOD…)" value={line1} onChange={(e) => setLine1(e.target.value)} style={{width: '100%', marginBottom: 6}} />
-        <input placeholder="Bottom text (e.g. WOKE UP IN PANGAEA)" value={line2} onChange={(e) => setLine2(e.target.value)} style={{width: '100%', marginBottom: 6}} />
-        <input placeholder="Badge (top right), empty = no badge" value={badge} onChange={(e) => setBadge(e.target.value)} style={{width: '100%', marginBottom: 6}} />
-        <canvas ref={cv} width={1280} height={720} style={{width: '100%', border: '1px solid var(--line)', borderRadius: 6}} />
-        <button className="primary" onClick={download} disabled={!proj.images.length}>Download thumbnail</button>
+        <canvas ref={cv} width={1280} height={720} className="th-canvas" onPointerDown={tDown} onPointerMove={tMove} onPointerUp={() => (grab.current = null)} />
+        <p className="muted">Drag the picture, the text or a sticker to move it. Ctrl+V pastes a picture.</p>
+        <div className="th-grid">
+          <span>Zoom</span>
+          <input type="range" min={0.5} max={4} step={0.05} value={th.zoom} onChange={(e) => tset({zoom: Number(e.target.value)})} />
+          <span>Dark fade</span>
+          <input type="range" min={0} max={0.9} step={0.05} value={th.fade} onChange={(e) => tset({fade: Number(e.target.value)})} />
+          <span>Background</span>
+          <div className="row tight">
+            {['#ffffff', '#111111', '#d6402f', '#ffd23f'].map((c) => <button key={c} className={`ed-color${th.bg === c ? ' on' : ''}`} style={{background: c}} onClick={() => tset({bg: c})} />)}
+          </div>
+        </div>
+        {([1, 2] as const).map((i) => (
+          <div key={i} className="th-line">
+            <input placeholder={i === 1 ? 'Top text (e.g. DIED IN A FLOOD…)' : 'Bottom text (e.g. WOKE UP IN PANGAEA)'} value={i === 1 ? line1 : line2} onChange={(e) => (i === 1 ? setLine1 : setLine2)(e.target.value)} />
+            <div className="row tight">
+              {SWATCH.map((c) => <button key={c} className={`ed-color${(th as any)[`color${i}`] === c ? ' on' : ''}`} style={{background: c}} onClick={() => tset({[`color${i}`]: c} as any)} />)}
+              <input type="range" min={40} max={160} value={(th as any)[`size${i}`]} title="Text size" onChange={(e) => tset({[`size${i}`]: Number(e.target.value)} as any)} />
+            </div>
+          </div>
+        ))}
+        <div className="th-line">
+          <input placeholder="Badge, empty = no badge" value={badge} onChange={(e) => setBadge(e.target.value)} />
+          <div className="row tight">
+            {['#d6402f', '#111111', '#2f6fd1', '#1f9d55', '#f08a24'].map((c) => <button key={c} className={`ed-color${th.badgeColor === c ? ' on' : ''}`} style={{background: c}} onClick={() => tset({badgeColor: c})} />)}
+            <button className="small" onClick={() => tset({badgeLeft: !th.badgeLeft})}>{th.badgeLeft ? 'Move right' : 'Move left'}</button>
+          </div>
+        </div>
+        <div className="row tight">
+          <button className="small" onClick={() => addSticker('circle')}>⭕ Red circle</button>
+          <button className="small" onClick={() => addSticker('arrow')}>➡️ Red arrow</button>
+          {pick != null && (
+            <>
+              <button className="small" onClick={() => editSticker((s) => ({...s, s: s.s * 1.2}))}>Bigger</button>
+              <button className="small" onClick={() => editSticker((s) => ({...s, s: s.s / 1.2}))}>Smaller</button>
+              <button className="small" onClick={() => editSticker((s) => ({...s, rot: s.rot + 45}))}>Turn</button>
+              <button className="small ghost" onClick={() => (editSticker(() => null), setPick(null))}>Remove</button>
+            </>
+          )}
+        </div>
+        <div className="row">
+          <button className="primary" onClick={download} disabled={!pic}>Download thumbnail</button>
+          <button className="small ghost" onClick={resetThumb}>Reset</button>
+        </div>
       </div>
     </div>
   );
