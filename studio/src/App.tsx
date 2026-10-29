@@ -1223,6 +1223,11 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     setLine2(t.thumbBottom || '');
     if (t.thumbStyle) tset(t.thumbStyle);
     setExtra(t.thumbExtra || []);
+    setStickers(t.thumbStickers || []);
+    setPick(null);
+    if (t.thumbImg && proj.images.some((i) => i.n === t.thumbImg)) (setImg(t.thumbImg), setCustom(null));
+    if (t.thumbObj != null) setObj(t.thumbObj);
+    if (t.thumbBadge != null) setBadge(t.thumbBadge.replaceAll('{n}', String(n)));
     await saveWith(v, `"${t.name}" template used for Part ${n}`);
   };
   // asNew asks for a name; otherwise the selected template is updated in place
@@ -1231,7 +1236,8 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
     if (!name) return;
     const t = {
       name, series: y.series, title: y.title, description: y.description, tags: y.tags, endText: y.endText, endSub: y.endSub,
-      thumbTop: line1, thumbBottom: line2, thumbStyle: {...th, zoom: 1, px: 0, py: 0}, thumbExtra: extra,
+      thumbTop: line1, thumbBottom: line2, thumbStyle: th, thumbExtra: extra, thumbStickers: stickers,
+      thumbImg: img, thumbObj: obj, thumbBadge: badge.replace(/^part\s*\d+$/i, (m) => m.replace(/\d+/, '{n}')),
     };
     const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
     setTemplates(list);
