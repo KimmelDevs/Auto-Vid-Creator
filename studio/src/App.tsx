@@ -548,16 +548,18 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
 // ---------- script tab: Script | Characters ----------
 // both stay mounted, so unsaved script text survives switching
 const ScriptTab: React.FC<{proj: Project; reload: () => void; say: (m: string) => void}> = (p) => {
-  const [sub, setSub] = useState<'script' | 'chars'>(() => (localStorage.getItem('sm.scriptSub') as any) || 'script');
+  const [sub, setSub] = useState<'script' | 'chars' | 'places'>(() => (localStorage.getItem('sm.scriptSub') as any) || 'script');
   useEffect(() => localStorage.setItem('sm.scriptSub', sub), [sub]);
   return (
     <>
       <div className="seg subtabs">
         <button className={sub === 'script' ? 'on' : ''} onClick={() => setSub('script')}>📝 Script</button>
         <button className={sub === 'chars' ? 'on' : ''} onClick={() => setSub('chars')}>👤 Characters</button>
+        <button className={sub === 'places' ? 'on' : ''} onClick={() => setSub('places')}>🏠 Places</button>
       </div>
       <div style={{display: sub === 'script' ? undefined : 'none'}}><Script {...p} /></div>
-      {sub === 'chars' && <Characters proj={p.proj} say={p.say} />}
+      {sub === 'chars' && <Characters key="c" proj={p.proj} say={p.say} />}
+      {sub === 'places' && <Characters key="p" kind="places" proj={p.proj} say={p.say} />}
     </>
   );
 };
@@ -566,8 +568,13 @@ type Char = {name: string; fields: {label: string; value: string}[]};
 const CHAR_FIELDS = ['Appearance', 'Face', 'Clothing', 'Personality'];
 const charText = (c: Char) => `${c.name}: ${c.fields.filter((f) => f.value.trim()).map((f) => `${f.label}: ${f.value.trim()}`).join('; ')}`;
 
-// characters live in the YouTube templates, so every part of a series shares them
-const Characters: React.FC<{proj: Project; say: (m: string) => void}> = ({proj, say}) => {
+// characters and places live in the YouTube templates, so every part of a series shares them
+const KINDS = {
+  characters: {one: 'character', fields: CHAR_FIELDS, hint: 'Make a character to keep their look, face, clothes and personality in one place for your image prompts.'},
+  places: {one: 'place', fields: ['Appearance', 'Layout', 'Light & mood', 'Key objects'], hint: 'Make a place so every image of it is drawn the same way.'},
+};
+const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyof typeof KINDS}> = ({proj, say, kind = 'characters'}) => {
+  const K = KINDS[kind];
   const [templates, setTemplates] = useState<any[]>([]);
   const [tpl, setTpl] = useState('');
   const [curName, setCurName] = useState('');
@@ -581,7 +588,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void}> = ({proj, 
       const series = (proj.config.youtube?.series || '').trim();
       const t = l.find((x: any) => (x.series || '').trim() && (x.series || '').trim() === series) || l[0];
       setTpl(t?.name || '');
-      setCurName(firstName(t?.characters || []));
+      setCurName(firstName(t?.[kind] || []));
     }).catch(() => {});
   }, [proj.id]);
   // save the templates file shortly after every change
@@ -591,28 +598,28 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void}> = ({proj, 
     const t = setTimeout(() => api('/api/templates', {method: 'PUT', body: templates}).then(() => ((last.current = JSON.stringify(templates)), setSaved(true))).catch((e) => say(e.message)), 600);
     return () => clearTimeout(t);
   }, [templates]);
-  const list: Char[] = templates.find((t) => t.name === tpl)?.characters || [];
+  const list: Char[] = templates.find((t) => t.name === tpl)?.[kind] || [];
   const sorted = [...list].sort((x, y) => x.name.localeCompare(y.name));
   const c = list.find((x) => x.name === curName);
-  const setList = (f: (l: Char[]) => Char[]) => setTemplates((ts) => ts.map((t) => (t.name === tpl ? {...t, characters: f(t.characters || [])} : t)));
+  const setList = (f: (l: Char[]) => Char[]) => setTemplates((ts) => ts.map((t) => (t.name === tpl ? {...t, [kind]: f(t[kind] || [])} : t)));
   const change = (f: (c: Char) => Char) => setList((l) => l.map((x) => (x.name === curName ? f(x) : x)));
   const pickTemplate = (name: string) => {
     setTpl(name);
-    setCurName(firstName(templates.find((t) => t.name === name)?.characters || []));
+    setCurName(firstName(templates.find((t) => t.name === name)?.[kind] || []));
   };
   const add = () => {
-    const name = prompt('Character name:')?.trim();
+    const name = prompt(`Name of the new ${K.one}:`)?.trim();
     if (!name) return;
     if (list.some((x) => x.name.toLowerCase() === name.toLowerCase())) return say(`${name} already exists`);
-    setList((l) => [...l, {name, fields: CHAR_FIELDS.map((label) => ({label, value: ''}))}]);
+    setList((l) => [...l, {name, fields: K.fields.map((label) => ({label, value: ''}))}]);
     setCurName(name);
   };
   const addField = () => {
-    const label = prompt('What kind of info? (e.g. Hair, Weapon, Age, Voice)')?.trim();
+    const label = prompt(kind === 'places' ? 'What kind of info? (e.g. Sounds, Smell, Exits, Time of day)' : 'What kind of info? (e.g. Hair, Weapon, Age, Voice)')?.trim();
     if (label) change((x) => ({...x, fields: [...x.fields, {label, value: ''}]}));
   };
   const copy = (t: string) => navigator.clipboard.writeText(t).then(() => say('Copied'));
-  if (!templates.length) return <p className="muted">Make a template in the YouTube tab first; characters are kept with templates.</p>;
+  if (!templates.length) return <p className="muted">Make a template in the YouTube tab first; {kind} are kept with templates.</p>;
   return (
     <div className="chars">
       <div className="row">
@@ -620,12 +627,12 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void}> = ({proj, 
         <select value={tpl} onChange={(e) => pickTemplate(e.target.value)}>
           {templates.map((t) => <option key={t.name}>{t.name}</option>)}
         </select>
-        <b>Character</b>
+        <b>{kind === 'places' ? 'Place' : 'Character'}</b>
         <select value={c ? curName : ''} onChange={(e) => setCurName(e.target.value)} disabled={!list.length}>
-          {!list.length && <option value="">No characters yet</option>}
+          {!list.length && <option value="">No {kind} yet</option>}
           {sorted.map((x) => <option key={x.name}>{x.name}</option>)}
         </select>
-        <button className="primary" onClick={add}>+ New character</button>
+        <button className="primary" onClick={add}>+ New {K.one}</button>
         {c && <button className="small" onClick={() => {
           const name = prompt('New name:', c.name)?.trim();
           if (!name || name === c.name) return;
@@ -655,12 +662,12 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void}> = ({proj, 
           <div className="row">
             <button onClick={addField}>+ Add info</button>
             <button className="primary" onClick={() => copy(charText(c))}>📋 Copy for prompt</button>
-            {list.length > 1 && <button className="small" onClick={() => copy(sorted.map(charText).join('\n'))}>Copy all characters</button>}
+            {list.length > 1 && <button className="small" onClick={() => copy(sorted.map(charText).join('\n'))}>Copy all {kind}</button>}
           </div>
           <div className="ytout"><pre>{charText(c)}</pre></div>
         </div>
       ) : (
-        <p className="muted">Make a character to keep their look, clothes and personality in one place for your image prompts.</p>
+        <p className="muted">{K.hint}</p>
       )}
     </div>
   );
