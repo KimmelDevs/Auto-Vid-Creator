@@ -498,6 +498,39 @@ app.post('/api/open', wrap((req) => {
   return {ok: true};
 }));
 
+// YouTube templates (title, description, tags, end card, thumbnail text) shared by every project
+const TEMPLATES = path.join(HERE, 'templates.json');
+const SEED_TEMPLATES = [
+  {
+    name: 'Pangaea',
+    series: 'I Died in a Flood and Woke Up in Pangaea',
+    title: '{series} (Part {n})',
+    description: "{series} – Part {n}\n\nYou were twelve when the floodwater took you. Then you opened your eyes as a baby in a world where dinosaurs never died. No phones. No cities. Just a small family in a cave, a valley full of giants, and a head full of everything you learned in your old life.\n\nEvery day is a fight to survive. Every mistake costs someone. And the further you go, the stranger this world gets.\n\nNew part every day.\n\nSubscribe so you don't miss the next part.\n\n#reincarnated #pangaea #dinosaurs #survival #storytime #animation #survivalstory #prehistoric #doodleanimation #isekai",
+    tags: 'reincarnated in pangaea, dinosaur survival story, isekai, prehistoric survival, animated story, doodle animation, dinosaurs, storytime, survival story, jurassic',
+    endText: 'Part {next} coming next...',
+    endSub: "Subscribe so you don't miss it!",
+    thumbTop: 'DIED IN A FLOOD',
+    thumbBottom: 'WOKE UP IN PANGAEA',
+  },
+  {
+    name: 'Bunker',
+    series: 'Trapped in a Bunker With My Ex',
+    title: '{series} (Part {n})',
+    description: "{series} – Part {n}\n\nThe world ended the day you were supposed to fly away. Now you're locked underground for 60 days with the one person you just broke up with: Lena. One bunker, one door, not enough supplies, and too many things outside trying to get in.\n\nSurvive the days. Survive each other.\n\nNew part every day.\n\nSubscribe so you don't miss the next part.\n\n#trappedwithmyex #survival #apocalypse #bunker #storytime #animation #survivalstory #60days #doodleanimation #ex",
+    tags: 'survival story, apocalypse, bunker, trapped with my ex, animated story, doodle animation, 60 days, storytime',
+    endText: 'Part {next} coming next...',
+    endSub: "Subscribe so you don't miss it!",
+    thumbTop: 'TRAPPED IN A BUNKER',
+    thumbBottom: 'WITH MY EX',
+  },
+];
+app.get('/api/templates', wrap(() => readJson(TEMPLATES, SEED_TEMPLATES)));
+app.put('/api/templates', wrap((req) => {
+  const list = (Array.isArray(req.body) ? req.body : []).filter((t) => t && String(t.name || '').trim());
+  fs.writeFileSync(TEMPLATES, JSON.stringify(list, null, 1));
+  return list;
+}));
+
 app.get('/api/notes', wrap(() => ({text: fs.existsSync(NOTES) ? fs.readFileSync(NOTES, 'utf8') : ''})));
 app.put('/api/notes', wrap((req) => {
   fs.writeFileSync(NOTES, String(req.body.text || ''));

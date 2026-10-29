@@ -1187,14 +1187,53 @@ const YT_DEFAULT = {
   series: '',
 };
 const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => void}> = ({proj, reload, say}) => {
-  const [y, setY] = useState({...YT_DEFAULT, ...(proj.config.youtube || {})});
+  const end = proj.config.end_card || {};
+  const [y, setY] = useState({
+    ...YT_DEFAULT,
+    endText: (end.text || 'Part {next} coming next...').replace(/^Part \d+ coming next/, 'Part {next} coming next'),
+    endSub: end.sub || "Subscribe so you don't miss it!",
+    ...(proj.config.youtube || {}),
+  });
   const n = Number(proj.id.match(/(\d+)\D*$/)?.[1] || 1);
-  const fill = (t: string) => t.replaceAll('{n}', String(n)).replaceAll('{series}', y.series || proj.id.replace(/[_\d]+$/, '').replace(/_/g, ' '));
+  const fillWith = (v: any) => (t: string) =>
+    (t || '').replaceAll('{n}', String(n)).replaceAll('{next}', String(n + 1)).replaceAll('{series}', v.series || proj.id.replace(/[_\d]+$/, '').replace(/_/g, ' '));
+  const fill = fillWith(y);
   const set = (k: string, v: string) => setY((s: any) => ({...s, [k]: v}));
-  const save = async () => {
-    await api(`/api/projects/${proj.id}/config`, {method: 'PUT', body: {youtube: y}});
-    say('Saved. Duplicate this project for the next part and these come along.');
+  // the end card ("Part 7 coming next... / Subscribe") is written into the project too
+  const saveWith = async (v: any, msg = 'Saved. Duplicate this project for the next part and these come along.') => {
+    const f = fillWith(v);
+    await api(`/api/projects/${proj.id}/config`, {method: 'PUT', body: {youtube: v, end_card: {text: f(v.endText), sub: f(v.endSub)}}});
+    say(msg);
     reload();
+  };
+  const save = () => saveWith(y);
+  // templates: one click fills title, description, tags, end card and thumbnail text
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [tpl, setTpl] = useState('');
+  useEffect(() => void api('/api/templates').then((l) => (setTemplates(l), setTpl((t) => t || l[0]?.name || ''))).catch(() => {}), []);
+  const useTemplate = async () => {
+    const t = templates.find((x) => x.name === tpl);
+    if (!t) return;
+    const v = {...y, series: t.series, title: t.title, description: t.description, tags: t.tags, endText: t.endText, endSub: t.endSub};
+    setY(v);
+    setLine1(t.thumbTop || '');
+    setLine2(t.thumbBottom || '');
+    await saveWith(v, `"${t.name}" template used for Part ${n}`);
+  };
+  const saveTemplate = async () => {
+    const name = prompt('Template name:', tpl || y.series || 'My series')?.trim();
+    if (!name) return;
+    const t = {name, series: y.series, title: y.title, description: y.description, tags: y.tags, endText: y.endText, endSub: y.endSub, thumbTop: line1, thumbBottom: line2};
+    const list = await api('/api/templates', {method: 'PUT', body: [...templates.filter((x) => x.name !== name), t]});
+    setTemplates(list);
+    setTpl(name);
+    say(`Template "${name}" saved`);
+  };
+  const deleteTemplate = async () => {
+    if (!tpl || !confirm(`Delete the "${tpl}" template?`)) return;
+    const list = await api('/api/templates', {method: 'PUT', body: templates.filter((x) => x.name !== tpl)});
+    setTemplates(list);
+    setTpl(list[0]?.name || '');
   };
   const copy = (t: string) => navigator.clipboard.writeText(t).then(() => say('Copied'));
   // thumbnail
@@ -1262,6 +1301,15 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
   return (
     <div className="cols">
       <div className="form grow">
+        <div className="row note">
+          <b>Template</b>
+          <select value={tpl} onChange={(e) => setTpl(e.target.value)}>
+            {templates.map((t) => <option key={t.name}>{t.name}</option>)}
+          </select>
+          <button className="primary" onClick={useTemplate} disabled={!tpl}>Use template</button>
+          <button className="small" onClick={saveTemplate} title="Save what is on this page as a template">Save as template</button>
+          <button className="small ghost" onClick={deleteTemplate} disabled={!tpl}>Delete</button>
+        </div>
         <label>
           Series name <input value={y.series} placeholder="I Died in a Flood and Woke Up in Pangaea" onChange={(e) => set('series', e.target.value)} />
         </label>
@@ -1273,6 +1321,12 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
         </label>
         <label>
           Tags <input value={y.tags} onChange={(e) => set('tags', e.target.value)} />
+        </label>
+        <label>
+          End card text <input value={y.endText} onChange={(e) => set('endText', e.target.value)} /> <span className="muted">{'{next}'} = next part number. Shows as: {fill(y.endText)}</span>
+        </label>
+        <label>
+          End card small text <input value={y.endSub} onChange={(e) => set('endSub', e.target.value)} />
         </label>
         <div className="row">
           <button className="primary" onClick={save}>Save</button>
