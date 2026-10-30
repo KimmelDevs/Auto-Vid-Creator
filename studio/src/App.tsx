@@ -100,6 +100,7 @@ export const App: React.FC = () => {
     set();
     new ResizeObserver(set).observe(el);
   }, []);
+  const [hideMain, flipMain] = useHidden('sm.hide.main');
   const say = (m: string) => {
     setToast(m);
     setTimeout(() => setToast(''), 3500);
@@ -133,7 +134,8 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="app">
+    <div className={'app' + (hideMain ? ' hide-main' : '')}>
+      <button className="sidetoggle mainside" title={hideMain ? 'Show side panel' : 'Hide side panel'} onClick={flipMain}>{hideMain ? '▶' : '◀'}</button>
       <aside>
         <h1>Story Maker</h1>
         <div className="new">
@@ -207,6 +209,16 @@ export const App: React.FC = () => {
   );
 };
 
+// side panels can be hidden; the choice is remembered per panel
+const useHidden = (key: string) => {
+  const [hidden, set] = useState(() => localStorage.getItem(key) === '1');
+  useEffect(() => localStorage.setItem(key, hidden ? '1' : '0'), [key, hidden]);
+  return [hidden, () => set((h) => !h)] as const;
+};
+const SideToggle: React.FC<{hidden: boolean; flip: () => void; right?: boolean}> = ({hidden, flip, right}) => (
+  <button className="sidetoggle" title={hidden ? 'Show side panel' : 'Hide side panel'} onClick={flip}>{hidden !== !!right ? '▶' : '◀'}</button>
+);
+
 // ---------- render many: tick videos, render them one after another ----------
 const mins = (sec: number) => (sec >= 3600 ? `${Math.floor(sec / 3600)}h ${Math.round((sec % 3600) / 60)}m` : `${Math.max(1, Math.round(sec / 60))}m`);
 const RenderMany: React.FC<{say: (m: string) => void}> = ({say}) => {
@@ -215,6 +227,7 @@ const RenderMany: React.FC<{say: (m: string) => void}> = ({say}) => {
   const [q, setQ] = useState<{running: any[]; waiting: any[]; finished: any[]}>({running: [], waiting: [], finished: []});
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [kind, setKind] = useState<'render' | 'short'>('render');
+  const [hideProg, flipProg] = useHidden('sm.hide.progress');
   const load = useCallback(() => {
     api('/api/projects').then(setProjects).catch(() => {});
     api('/api/queue').then(setQ).catch(() => {});
@@ -285,8 +298,10 @@ const RenderMany: React.FC<{say: (m: string) => void}> = ({say}) => {
         </select>
         <button className="small" onClick={() => toggle(projects.filter((p) => can(p) && !p.hasVideo).map((p) => p.id), true)}>Select not made yet</button>
         <button className="small" onClick={() => setSel(new Set())}>Clear</button>
+        <span className="spacer" />
+        <SideToggle right hidden={hideProg} flip={flipProg} />
       </div>
-      <div className="rm-cols">
+      <div className={'rm-cols' + (hideProg ? ' hide-side' : '')}>
         <div className="rm-box">
           {groups.map((g) => {
             const ids = g.items.filter(can).map((p) => p.id);
@@ -929,6 +944,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   const [curName, setCurName] = useState('');
   const [shut, setShut] = useState<Record<string, boolean>>({});  // folders hidden in the list
   const last = useRef('');  // what is on disk, to tell when there is something to save
+  const [hideTree, flipTree] = useHidden(`sm.hide.${kind}`);
   const firstName =(l: Char[]) => [...l].sort((x, y) => x.name.localeCompare(y.name))[0]?.name || '';
   useEffect(() => {
     if (templates.length && JSON.stringify(templates) !== last.current) return;  // keep unsaved work when the project changes
@@ -994,7 +1010,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   if (!templates.length) return <p className="muted">Make a template in the YouTube tab first; {kind} are kept with templates.</p>;
   const grouped = kind === 'characters';
   return (
-    <div className="chars pl">
+    <div className={'chars pl' + (hideTree ? ' hide-side' : '')}>
       {dirty && (
         <div className="floatsave ch-save">
           <button className="primary" onClick={save}>💾 Save changes</button>
@@ -1029,6 +1045,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
       </div>
       <div className="pl-main">
         <div className="row">
+          <SideToggle hidden={hideTree} flip={flipTree} />
           <b>{tpl}</b>
           <button className="primary" onClick={add}>+ New {K.one}</button>
           {c && <button className="small" onClick={() => {
@@ -1107,6 +1124,7 @@ const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
   const [script, setScript] = useState('');
   const [imgN, setImgN] = useState(0);
   const [grid, setGrid] = useState(true);
+  const [hideLeft, flipLeft] = useHidden('sm.hide.promptmaker');
   useEffect(() => {
     api('/api/templates').then((l) => (setTemplates(l), setTpl(l[0]?.name || '')));
     api('/api/folders').then(setFolders).catch(() => {});
@@ -1189,7 +1207,7 @@ const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
         <h2>Prompt maker</h2>
         <span className="muted">Tick what you need. The result is a prompt that asks ChatGPT or DeepSeek to write the image prompt.</span>
       </header>
-      <div className="pm-cols">
+      <div className={'pm-cols' + (hideLeft ? ' hide-side' : '')}>
         <div className="pm-left">
           <div className="row tight">
             <label>Series <select value={tpl} onChange={(e) => (setTpl(e.target.value), setPlaces({}), setPicks({}))}>{templates.map((x) => <option key={x.name}>{x.name}</option>)}</select></label>
@@ -1278,6 +1296,7 @@ const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
         </div>
         <div className="pm-right">
           <div className="row tight">
+            <SideToggle hidden={hideLeft} flip={flipLeft} />
             <button className="primary" onClick={() => navigator.clipboard.writeText(blocks).then(() => say('Prompt copied'))}>📋 Copy prompt</button>
             <span className="muted">{blocks.length} characters</span>
           </div>
@@ -2592,6 +2611,7 @@ const Notes: React.FC<{say: (m: string) => void}> = ({say}) => {
   const join = (l: {title: string; body: string}[]) => head + l.map((n) => `## ${n.title}\n${n.body}\n`).join('\n');
   const [sel, setSel] = useState(0);
   const [raw, setRaw] = useState(false);
+  const [hideList, flipList] = useHidden('sm.hide.notes');
   const [q, setQ] = useState('');
   const setNotes = (l: typeof notes) => change(join(l));
   const cur = notes[sel];
@@ -2632,7 +2652,7 @@ const Notes: React.FC<{say: (m: string) => void}> = ({say}) => {
           <p className="muted">Start a line with "## " to make a new note.</p>
         </>
       ) : (
-        <div className="nt">
+        <div className={'nt' + (hideList ? ' hide-side' : '')}>
           <div className="nt-list">
             <button className="primary" onClick={add}>+ New note</button>
             <input placeholder="Search notes…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -2643,6 +2663,7 @@ const Notes: React.FC<{say: (m: string) => void}> = ({say}) => {
           {cur ? (
             <div className="nt-edit">
               <div className="row tight">
+                <SideToggle hidden={hideList} flip={flipList} />
                 <input className="nt-title" value={cur.title} onChange={(e) => edit({title: e.target.value.replace(/\n/g, ' ')})} />
                 <button className="primary" onClick={() => navigator.clipboard.writeText(cur.body.trim()).then(() => say('Copied'))}>📋 Copy</button>
                 <button className="small" onClick={() => move(-1)} disabled={sel === 0} title="Move up">↑</button>
