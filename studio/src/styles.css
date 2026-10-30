@@ -202,3 +202,5 @@ button.insert:hover { opacity: 1; border-color: var(--accent); color: var(--acce
 /* SRT lines under each image in Images & Effects */
 .srt-toggle { margin-top: 8px; }
 .srt-part { white-space: pre-wrap; font-size: 12px; line-height: 1.45; max-height: 340px; overflow-y: auto; background: #faf9f6; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0 0; }
+.srt-wrap { position: relative; }
+.srt-copy { position: absolute; top: 12px; right: 16px; z-index: 1; background: #fff; }

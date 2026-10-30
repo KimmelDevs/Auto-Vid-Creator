@@ -537,7 +537,14 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
             <button className="small ghost srt-toggle" onClick={() => setShowSrt((m) => ({...m, [n]: !m[n]}))}>
               {showSrt[n] ? '▲ Hide script' : '▼ Show script'}
             </button>
-            {showSrt[n] && <pre className="srt-part">{srtFor(n) || `No [${n}.x] tags in the script yet.`}</pre>}
+            {showSrt[n] && (
+              <div className="srt-wrap">
+                {srtFor(n) && (
+                  <button className="small srt-copy" title="Copy these lines" onClick={() => navigator.clipboard.writeText(srtFor(n)).then(() => say(`Script for image ${n} copied`))}>📋 Copy</button>
+                )}
+                <pre className="srt-part">{srtFor(n) || `No [${n}.x] tags in the script yet.`}</pre>
+              </div>
+            )}
           </div>
           <div className="objs" style={{gridTemplateColumns: `repeat(${cols}, 1fr)`}}>
             {Array.from({length: K}, (_, i) => {
