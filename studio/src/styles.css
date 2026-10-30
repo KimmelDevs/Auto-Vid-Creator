@@ -302,7 +302,7 @@ button.insert:hover { opacity: 1; border-color: var(--accent); color: var(--acce
 /* hide any side panel */
 .sidetoggle { padding: 2px 8px; font-size: 12px; line-height: 1.4; flex: none; }
 .mainside { position: fixed; left: 236px; top: 16px; z-index: 40; background: #2c2b30; color: #fff; border-color: #3a393f; }
-.app.hide-main { grid-template-columns: 0 1fr; }
+.app.hide-main { grid-template-columns: 1fr; }
 .app.hide-main aside { display: none; }
 .app.hide-main .mainside { left: 6px; }
 .app.hide-main main > header { padding-left: 44px; }
