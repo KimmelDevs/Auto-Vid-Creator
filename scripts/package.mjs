@@ -59,8 +59,19 @@ console.log('   -> ' + appZip);
 
 if (process.argv.includes('--sounds')) {
   console.log('5. Zipping the sound library (large, please wait)...');
-  // the real library is the repo sfx/ once filled, else the parent Story Maker/sfx
-  const sfx = fs.existsSync(path.join(ROOT, 'sfx', 'manifest.json')) ? path.join(ROOT, 'sfx') : path.join(ROOT, '..', 'sfx');
+  // the real library is the folder that actually holds sounds (same rule the server uses):
+  // the repo sfx/ if it has <mood>/<track>.mp3, else the parent Story Maker/sfx
+  const hasSounds = (d) => {
+    try {
+      return fs.readdirSync(d, {withFileTypes: true}).some((e) => e.isDirectory() && fs.readdirSync(path.join(d, e.name)).some((f) => f.endsWith('.mp3')));
+    } catch {
+      return false;
+    }
+  };
+  const repoSfx = path.join(ROOT, 'sfx');
+  const sfx = hasSounds(repoSfx) ? repoSfx : path.join(ROOT, '..', 'sfx');
+  const n = fs.readdirSync(sfx, {recursive: true}).filter((f) => String(f).endsWith('.mp3')).length;
+  console.log(`   source: ${sfx}  (${n} mp3 files)`);
   const soundsZip = path.join(OUT, 'StoryMaker-sounds.zip');
   ps(`Compress-Archive -Path '${sfx}' -DestinationPath '${soundsZip}' -Force`);
   console.log('   -> ' + soundsZip + '  (unzips to a folder named sfx)');
