@@ -8,7 +8,6 @@ import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createServer as createVite} from 'vite';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -646,13 +645,21 @@ app.put('/api/notes', wrap((req) => {
   return {ok: true};
 }));
 
-const vite = await createVite({
-  root: HERE,
-  configFile: path.join(HERE, 'vite.config.mjs'),
-  server: {middlewareMode: true, fs: {allow: [ROOT]}},
-  appType: 'spa',
-});
-app.use(vite.middlewares);
+// a built, minified app ships in studio/dist (the installed app); fall back to Vite dev when developing
+const DIST = path.join(HERE, 'dist');
+if (fs.existsSync(path.join(DIST, 'index.html'))) {
+  app.use(express.static(DIST));
+  app.get('*', (req, res, next) => (req.path.startsWith('/api/') ? next() : res.sendFile(path.join(DIST, 'index.html'))));
+} else {
+  const {createServer: createVite} = await import('vite');
+  const vite = await createVite({
+    root: HERE,
+    configFile: path.join(HERE, 'vite.config.mjs'),
+    server: {middlewareMode: true, fs: {allow: [ROOT]}},
+    appType: 'spa',
+  });
+  app.use(vite.middlewares);
+}
 // carry on with a queue left over from before a restart
 {
   const saved = readJson(QUEUE_FILE, null);

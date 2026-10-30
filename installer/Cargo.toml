@@ -1,0 +1,22 @@
+[package]
+name = "storymaker-installer"
+version = "1.0.0"
+edition = "2021"
+
+# setup.exe installs the app; StoryMaker.exe runs it. No external crates:
+# both drive Windows PowerShell for downloading and unzipping, so the build is
+# offline and the exes stay small.
+
+[[bin]]
+name = "setup"
+path = "src/bin/setup.rs"
+
+[[bin]]
+name = "StoryMaker"
+path = "src/bin/launcher.rs"
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+panic = "abort"

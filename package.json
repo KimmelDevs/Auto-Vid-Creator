@@ -6,7 +6,9 @@
     "dev": "node studio/server.mjs",
     "captions": "node scripts/srt2json.mjs",
     "studio": "remotion studio src/index.ts",
-    "make": "python autovid/autovid.py"
+    "make": "python autovid/autovid.py",
+    "build": "vite build studio",
+    "start": "node studio/server.mjs"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.300",

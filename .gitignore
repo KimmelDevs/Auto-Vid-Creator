@@ -8,3 +8,7 @@ studio/dev.log
 *.bak.py
 sfx/**/*.mp3
 .history/
+studio/dist/
+dist-package/
+*.exe
+installer/target/

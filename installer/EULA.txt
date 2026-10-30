@@ -1,0 +1,42 @@
+STORY MAKER STUDIO - END USER LICENSE AGREEMENT
+
+Last updated: 2026
+
+Please read this agreement before installing or using Story Maker Studio
+("the Software"). By clicking "I agree", installing, or using the Software,
+you accept this agreement. If you do not agree, do not install or use it.
+
+1. LICENSE
+   You are granted a personal, non-exclusive, non-transferable license to
+   install and use the Software to create your own videos.
+
+2. OWNERSHIP
+   The Software, its source code, design and bundled assets remain the
+   property of the author. This agreement gives you the right to use it,
+   not to own it.
+
+3. YOU MAY NOT
+   - sell, rent, sub-license or redistribute the Software or any part of it;
+   - copy, decompile, reverse engineer, or extract the Software's source
+     code, except where that right cannot be removed by law;
+   - remove or hide any copyright or author notice;
+   - claim the Software, or a modified copy of it, as your own.
+
+4. YOUR CONTENT
+   Videos, scripts, images and other files you create with the Software are
+   yours. The author claims no ownership over them.
+
+5. DOWNLOADED ASSETS
+   On first run the Software downloads a sound-effect and music library and
+   a copy of the Node.js runtime. These are provided for use inside the
+   Software only.
+
+6. NO WARRANTY
+   The Software is provided "as is", without warranty of any kind. The
+   author is not liable for any loss or damage arising from its use.
+
+7. TERMINATION
+   This license ends automatically if you break any term of it. On
+   termination you must stop using and delete the Software.
+
+By installing you confirm that you have read and agree to these terms.
