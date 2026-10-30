@@ -123,6 +123,14 @@ function writeScript(d, text) {
 // ---- background jobs (build / render / short), one per project; renders also go through a queue
 const jobs = {};
 const queue = [];  // [{id, kind: 'render' | 'short'}], run one at a time
+const finished = [];  // newest first: [{id, kind, state, seconds, at}]
+// the queue is kept on disk, so a restart or crash carries on with the same list
+const QUEUE_FILE = path.join(OUT, 'queue.json');
+const saveQueue = () => {
+  const now = Object.entries(jobs).filter(([, j]) => j.state === 'running' && j.kind !== 'build').map(([id, j]) => ({id, kind: j.kind}));
+  fs.mkdirSync(OUT, {recursive: true});
+  fs.writeFileSync(QUEUE_FILE, JSON.stringify({queue: [...now, ...queue], finished: finished.slice(0, 200)}, null, 1));
+};
 const videoName = (id, kind) => (kind === 'short' ? `${id}_short.mp4` : `${id}.mp4`);
 const rendering = () => Object.values(jobs).some((j) => j.state === 'running' && j.kind !== 'build');
 function startRender(id, kind) {
@@ -131,10 +139,11 @@ function startRender(id, kind) {
   run(id, kind, [path.relative(ROOT, d), kind === 'short' ? '--short' : '--render', '--out', tmp]);
 }
 function nextInQueue() {
-  if (rendering() || !queue.length) return;
+  if (rendering() || !queue.length) return saveQueue();
   const q = queue.shift();
   try {
     startRender(q.id, q.kind);
+    saveQueue();
   } catch {
     nextInQueue();
   }
@@ -153,6 +162,10 @@ function run(id, kind, args) {
   p.stderr.on('data', take);
   p.on('close', (code) => {
     delete procs[id];
+    if (kind !== 'build') {
+      finished.unshift({id, kind, state: j.cancelled ? 'cancelled' : code === 0 ? 'done' : 'error', seconds: Math.round((Date.now() - j.started) / 1000), at: Date.now()});
+      finished.length = Math.min(finished.length, 200);
+    }
     if (j.cancelled) {
       j.state = 'cancelled';
       const tmp = path.join(OUT, `tmp_${videoName(id, kind)}`);
@@ -193,6 +206,7 @@ app.get('/api/projects', wrap(() =>
       images: images(d).length,
       hasScript: !!srtFile(d) || fs.existsSync(sourceFile(d)),
       hasVideo: fs.existsSync(path.join(OUT, `${e.name}.mp4`)),
+      videoTime: fs.existsSync(path.join(OUT, `${e.name}.mp4`)) ? fs.statSync(path.join(OUT, `${e.name}.mp4`)).mtimeMs : 0,
       mtime: fs.statSync(d).mtimeMs,
     };
   }).sort((a, b) => b.mtime - a.mtime)));
@@ -353,6 +367,7 @@ app.post('/api/projects/:id/render', wrap((req) => {
   if (jobs[id]?.state === 'running') throw Object.assign(new Error('already working on this project'), {status: 409});
   if (queue.some((q) => q.id === id && q.kind === kind)) return {queued: true};
   queue.push({id, kind});
+  saveQueue();
   nextInQueue();
   return {queued: !(jobs[id]?.state === 'running'), position: queue.findIndex((q) => q.id === id && q.kind === kind) + 1};
 }));
@@ -370,9 +385,25 @@ app.post('/api/projects/:id/cancel', wrap((req) => {
 app.get('/api/queue', wrap(() => ({
   running: Object.entries(jobs).filter(([, j]) => j.state === 'running' && j.kind !== 'build').map(([id, j]) => ({id, kind: j.kind, progress: j.progress})),
   waiting: queue,
+  finished,
 })));
 app.delete('/api/queue/:i', wrap((req) => {
   queue.splice(Number(req.params.i), 1);
+  saveQueue();
+  return {ok: true};
+}));
+// safe stop: "after" lets the current video finish, "now" also stops it (its half-made file is removed)
+app.post('/api/queue/stop', wrap((req) => {
+  queue.length = 0;
+  saveQueue();
+  if (req.body.mode === 'now') {
+    for (const [id, j] of Object.entries(jobs)) {
+      if (j.state === 'running' && j.kind !== 'build' && procs[id]) {
+        j.cancelled = true;
+        spawn('taskkill', ['/pid', String(procs[id].pid), '/T', '/F'], {shell: false});
+      }
+    }
+  }
   return {ok: true};
 }));
 
@@ -610,4 +641,14 @@ const vite = await createVite({
   appType: 'spa',
 });
 app.use(vite.middlewares);
+// carry on with a queue left over from before a restart
+{
+  const saved = readJson(QUEUE_FILE, null);
+  if (saved) {
+    finished.push(...(saved.finished || []));
+    for (const q of saved.queue || []) if (fs.existsSync(path.join(STORIES, q.id))) queue.push(q);
+    setTimeout(nextInQueue, 3000);
+  }
+}
+
 app.listen(PORT, () => console.log(`\n  Story Maker Studio -> http://localhost:${PORT}\n`));

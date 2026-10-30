@@ -245,3 +245,30 @@ button.insert:hover { opacity: 1; border-color: var(--accent); color: var(--acce
 @keyframes pv-red { 0%,100% { opacity: 0; background: #e0301e; } 50% { opacity: .35; background: #e0301e; } }
 @keyframes pv-fade { from { opacity: 0; background: #000; } to { opacity: 1; background: #000; } }
 @keyframes pv-dark { from { opacity: 0; background: #0b1230; } to { opacity: .55; background: #0b1230; } }
+
+/* render many */
+.rm { overflow: hidden; }
+.rm-cols { display: flex; gap: 16px; flex: 1; min-height: 0; }
+.rm-box { flex: 1; min-width: 0; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.rm-group { display: flex; align-items: center; gap: 6px; margin: 10px 0 6px; cursor: pointer; }
+.rm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+.rm-item { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; cursor: pointer; font-size: 13px; }
+.rm-item.on { border-color: var(--accent); background: #fdf1ef; }
+.rm-item.off { opacity: 0.5; cursor: default; }
+.rm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-st { font-size: 11px; white-space: nowrap; color: var(--muted); }
+.rm-st.run { color: var(--accent); font-weight: 700; }
+.rm-st.err { color: #c62828; font-weight: 700; }
+.rm-side { width: 300px; overflow-y: auto; }
+.rm-side h3 { margin: 10px 0 6px; font-size: 14px; }
+.rm-now { margin-bottom: 8px; font-size: 13px; }
+.rm-line { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
+
+/* places: folders on the left, the open place on the right */
+.chars.pl { display: flex; gap: 16px; align-items: flex-start; }
+.pl-tree { width: 260px; flex: none; position: sticky; top: var(--hdr, 64px); max-height: calc(100vh - var(--hdr, 64px) - 20px); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.pl-folder { display: block; width: 100%; text-align: left; font-weight: 700; background: transparent; border: none; padding: 5px 6px; }
+.pl-item { display: block; width: calc(100% - 16px); margin-left: 16px; text-align: left; font-size: 13px; background: transparent; border: none; padding: 4px 8px; border-radius: 6px; }
+.pl-item:hover { background: #ecebe6; }
+.pl-item.on { background: var(--ink); color: #fff; }
+.pl-main { flex: 1; min-width: 0; }

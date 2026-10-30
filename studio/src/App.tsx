@@ -106,7 +106,7 @@ export const App: React.FC = () => {
   };
   const loadList = useCallback(() => api('/api/projects').then(setProjects).catch((e) => say(e.message)), []);
   const loadProj = useCallback(() => {
-    if (!current || current === '__notes') return setProj(null);
+    if (!current || current.startsWith('__')) return setProj(null);
     // the editor works with \n line ends only (a textarea drops \r anyway)
     api(`/api/projects/${current}`).then((p) => setProj({...p, script: p.script.replace(/\r/g, '')})).catch((e) => {
       say(e.message);
@@ -143,11 +143,16 @@ export const App: React.FC = () => {
         <button className={'navitem notes' + (current === '__notes' ? ' on' : '')} onClick={() => setCurrent('__notes')}>
           📝 Notes & prompts
         </button>
+        <button className={'navitem notes' + (current === '__render' ? ' on' : '')} onClick={() => setCurrent('__render')}>
+          🎬 Render many
+        </button>
         <ProjectList projects={projects} current={current} pick={setCurrent} say={say} />
       </aside>
       <main>
         {current === '__notes' ? (
           <Notes say={say} />
+        ) : current === '__render' ? (
+          <RenderMany say={say} />
         ) : !proj ? (
           <div className="empty">
             <h2>Pick a project on the left, or create a new one.</h2>
@@ -193,6 +198,142 @@ export const App: React.FC = () => {
         )}
       </main>
       {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+};
+
+// ---------- render many: tick videos, render them one after another ----------
+const mins = (sec: number) => (sec >= 3600 ? `${Math.floor(sec / 3600)}h ${Math.round((sec % 3600) / 60)}m` : `${Math.max(1, Math.round(sec / 60))}m`);
+const RenderMany: React.FC<{say: (m: string) => void}> = ({say}) => {
+  const [projects, setProjects] = useState<any[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [q, setQ] = useState<{running: any[]; waiting: any[]; finished: any[]}>({running: [], waiting: [], finished: []});
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [kind, setKind] = useState<'render' | 'short'>('render');
+  const load = useCallback(() => {
+    api('/api/projects').then(setProjects).catch(() => {});
+    api('/api/queue').then(setQ).catch(() => {});
+  }, []);
+  useEffect(() => {
+    load();
+    api('/api/folders').then(setFolders).catch(() => {});
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [load]);
+  const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
+  const inFolder = new Set(folders.flatMap((f) => f.ids));
+  const natural = (a: any, b: any) => a.id.localeCompare(b.id, undefined, {numeric: true});
+  const groups = [
+    ...folders.map((f) => ({name: f.name, items: f.ids.map((id) => byId[id]).filter(Boolean).sort(natural)})),
+    {name: 'No folder', items: projects.filter((p) => !inFolder.has(p.id)).sort(natural)},
+  ].filter((g) => g.items.length);
+  const can = (p: any) => p.hasScript;
+  const toggle = (ids: string[], on: boolean) => setSel((s) => {
+    const n = new Set(s);
+    ids.forEach((id) => (on ? n.add(id) : n.delete(id)));
+    return n;
+  });
+  const start = async () => {
+    const ids = groups.flatMap((g) => g.items).filter((p) => sel.has(p.id)).map((p) => p.id);
+    let added = 0;
+    for (const id of ids) {
+      try {
+        await api(`/api/projects/${id}/render`, {body: {short: kind === 'short'}});
+        added++;
+      } catch (e: any) {
+        say(`${id}: ${e.message}`);
+      }
+    }
+    setSel(new Set());
+    say(`${added} added to the queue`);
+    load();
+  };
+  const stop = async (mode: 'after' | 'now') => {
+    if (mode === 'now' && !confirm('Stop the video being made right now? Its half-made file is removed. Finished videos are kept.')) return;
+    await api('/api/queue/stop', {body: {mode}});
+    say(mode === 'now' ? 'Stopped' : 'Will stop after the current video');
+    load();
+  };
+  const status = (p: any) => {
+    const r = q.running.find((x) => x.id === p.id);
+    if (r) return <span className="rm-st run">⏳ {r.progress}%</span>;
+    if (q.waiting.some((x) => x.id === p.id)) return <span className="rm-st wait">in queue</span>;
+    const f = q.finished.find((x) => x.id === p.id);
+    if (f?.state === 'error') return <span className="rm-st err">failed</span>;
+    if (p.hasVideo) return <span className="rm-st ok">✅ {new Date(p.videoTime).toLocaleDateString()}</span>;
+    return <span className="rm-st none">not made yet</span>;
+  };
+  const avg = q.finished.filter((f) => f.state === 'done').slice(0, 5).map((f) => f.seconds);
+  const each = avg.length ? avg.reduce((a, b) => a + b, 0) / avg.length : 0;
+  const left = q.waiting.length + q.running.length;
+  return (
+    <div className="notes rm">
+      <header>
+        <h2>Render many</h2>
+        <span className="muted">Tick the videos, press Render. They are made one at a time, and the list survives a restart.</span>
+      </header>
+      <div className="row sticky0">
+        <button className="primary" onClick={start} disabled={!sel.size}>▶ Render {sel.size || ''} selected</button>
+        <select value={kind} onChange={(e) => setKind(e.target.value as any)}>
+          <option value="render">Full video</option>
+          <option value="short">Short (9:16)</option>
+        </select>
+        <button className="small" onClick={() => toggle(projects.filter((p) => can(p) && !p.hasVideo).map((p) => p.id), true)}>Select not made yet</button>
+        <button className="small" onClick={() => setSel(new Set())}>Clear</button>
+      </div>
+      <div className="rm-cols">
+        <div className="rm-box">
+          {groups.map((g) => {
+            const ids = g.items.filter(can).map((p) => p.id);
+            const all = ids.length > 0 && ids.every((id) => sel.has(id));
+            return (
+              <div key={g.name}>
+                <label className="rm-group"><input type="checkbox" checked={all} onChange={(e) => toggle(ids, e.target.checked)} /> <b>{g.name}</b> <span className="muted">{g.items.length}</span></label>
+                <div className="rm-grid">
+                  {g.items.map((p) => (
+                    <label key={p.id} className={'rm-item' + (sel.has(p.id) ? ' on' : '') + (can(p) ? '' : ' off')} title={can(p) ? '' : 'No script yet'}>
+                      <input type="checkbox" disabled={!can(p)} checked={sel.has(p.id)} onChange={(e) => toggle([p.id], e.target.checked)} />
+                      <span className="rm-name">{p.id}</span>
+                      {status(p)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="rm-side">
+          <h3>Progress</h3>
+          {!left && <p className="muted">Nothing rendering.</p>}
+          {q.running.map((r) => (
+            <div key={r.id} className="rm-now">
+              <b>{r.id}</b> <span className="muted">{r.kind === 'short' ? 'short' : ''}</span> {r.progress}%
+              <div className="bar"><div style={{width: `${r.progress}%`}} /></div>
+            </div>
+          ))}
+          {each > 0 && left > 0 && <p className="muted">About {mins(each * left)} left ({mins(each)} each)</p>}
+          {left > 0 && (
+            <div className="row tight">
+              <button className="small" onClick={() => stop('after')} disabled={!q.waiting.length}>Stop after this video</button>
+              <button className="small ghost" onClick={() => stop('now')}>Stop now</button>
+            </div>
+          )}
+          {q.waiting.length > 0 && <h3>Waiting ({q.waiting.length})</h3>}
+          {q.waiting.map((w, i) => (
+            <div key={w.id + w.kind} className="rm-line">
+              <span>{i + 1}. {w.id}{w.kind === 'short' ? ' (short)' : ''}</span>
+              <button className="iconbtn" title="Take off the list" onClick={() => api(`/api/queue/${i}`, {method: 'DELETE'}).then(load)}>×</button>
+            </div>
+          ))}
+          {q.finished.length > 0 && <h3>Finished</h3>}
+          {q.finished.slice(0, 30).map((f, i) => (
+            <div key={i} className="rm-line">
+              <span>{{done: '✅', error: '❌', cancelled: '⏹'}[f.state as string]} {f.id}{f.kind === 'short' ? ' (short)' : ''}</span>
+              <span className="muted">{mins(f.seconds)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };
@@ -709,6 +850,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   const [templates, setTemplates] = useState<any[]>([]);
   const [tpl, setTpl] = useState('');
   const [curName, setCurName] = useState('');
+  const [shut, setShut] = useState<Record<string, boolean>>({});  // folders hidden in the Places list
   const [saved, setSaved] = useState(true);
   const last = useRef('');  // what is on disk, so opening the tab does not write anything
   const firstName = (l: Char[]) => [...l].sort((x, y) => x.name.localeCompare(y.name))[0]?.name || '';
@@ -751,18 +893,43 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   };
   const copy = (t: string) => navigator.clipboard.writeText(t).then(() => say('Copied'));
   if (!templates.length) return <p className="muted">Make a template in the YouTube tab first; {kind} are kept with templates.</p>;
+  const tree = kind === 'places';
   return (
-    <div className="chars">
+    <div className={tree ? 'chars pl' : 'chars'}>
+      {tree && (
+        <div className="pl-tree">
+          {templates.map((t) => {
+            const on = !shut[t.name];
+            const items = [...(t.places || [])].sort((x: Char, y: Char) => x.name.localeCompare(y.name));
+            return (
+              <div key={t.name}>
+                <button className="pl-folder" onClick={() => setShut((m) => ({...m, [t.name]: on}))}>
+                  {on ? '▾' : '▸'} 📁 {t.name} <span className="muted">{items.length}</span>
+                </button>
+                {on && items.map((x: Char) => (
+                  <button key={x.name} className={'pl-item' + (t.name === tpl && x.name === curName ? ' on' : '')} onClick={() => (setTpl(t.name), setCurName(x.name))}>{x.name}</button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="pl-main">
       <div className="row">
-        <b>Template</b>
-        <select value={tpl} onChange={(e) => pickTemplate(e.target.value)}>
-          {templates.map((t) => <option key={t.name}>{t.name}</option>)}
-        </select>
-        <b>{kind === 'places' ? 'Place' : 'Character'}</b>
-        <select value={c ? curName : ''} onChange={(e) => setCurName(e.target.value)} disabled={!list.length}>
-          {!list.length && <option value="">No {kind} yet</option>}
-          {sorted.map((x) => <option key={x.name}>{x.name}</option>)}
-        </select>
+        {tree && <b>{tpl}</b>}
+        {!tree && <b>Template</b>}
+        {!tree && (
+          <select value={tpl} onChange={(e) => pickTemplate(e.target.value)}>
+            {templates.map((t) => <option key={t.name}>{t.name}</option>)}
+          </select>
+        )}
+        {!tree && <b>Character</b>}
+        {!tree && (
+          <select value={c ? curName : ''} onChange={(e) => setCurName(e.target.value)} disabled={!list.length}>
+            {!list.length && <option value="">No {kind} yet</option>}
+            {sorted.map((x) => <option key={x.name}>{x.name}</option>)}
+          </select>
+        )}
         <button className="primary" onClick={add}>+ New {K.one}</button>
         {c && <button className="small" onClick={() => {
           const name = prompt('New name:', c.name)?.trim();
@@ -804,6 +971,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
       ) : (
         <p className="muted">{K.hint}</p>
       )}
+      </div>
     </div>
   );
 };
