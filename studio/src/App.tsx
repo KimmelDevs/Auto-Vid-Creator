@@ -835,8 +835,9 @@ const ScriptTab: React.FC<{proj: Project; reload: () => void; say: (m: string) =
         <button className={sub === 'places' ? 'on' : ''} onClick={() => setSub('places')}>🏠 Places</button>
       </div>
       <div style={{display: sub === 'script' ? undefined : 'none'}}><Script {...p} /></div>
-      {sub === 'chars' && <Characters key="c" proj={p.proj} say={p.say} />}
-      {sub === 'places' && <Characters key="p" kind="places" proj={p.proj} say={p.say} />}
+      {/* stay mounted too, so switching tabs keeps unsaved changes */}
+      <div style={{display: sub === 'chars' ? undefined : 'none'}}><Characters proj={p.proj} say={p.say} /></div>
+      <div style={{display: sub === 'places' ? undefined : 'none'}}><Characters kind="places" proj={p.proj} say={p.say} /></div>
     </>
   );
 };
@@ -927,10 +928,10 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   const [tpl, setTpl] = useState('');
   const [curName, setCurName] = useState('');
   const [shut, setShut] = useState<Record<string, boolean>>({});  // folders hidden in the list
-  const [saved, setSaved] = useState(true);
-  const last = useRef('');  // what is on disk, so opening the tab does not write anything
-  const firstName = (l: Char[]) => [...l].sort((x, y) => x.name.localeCompare(y.name))[0]?.name || '';
+  const last = useRef('');  // what is on disk, to tell when there is something to save
+  const firstName =(l: Char[]) => [...l].sort((x, y) => x.name.localeCompare(y.name))[0]?.name || '';
   useEffect(() => {
+    if (templates.length && JSON.stringify(templates) !== last.current) return;  // keep unsaved work when the project changes
     api('/api/templates').then((l) => {
       last.current = JSON.stringify(l);
       setTemplates(l);
@@ -940,13 +941,32 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
       setCurName(firstName(t?.[kind] || []));
     }).catch(() => {});
   }, [proj.id]);
-  // save the templates file shortly after every change
+  // nothing is written until Save is pressed; Save only touches this list, so other edits are kept
+  const dirty = templates.length > 0 && JSON.stringify(templates) !== last.current;
+  const save = async () => {
+    try {
+      const fresh: any[] = await api('/api/templates');
+      const merged = fresh.map((t) => ({...t, [kind]: templates.find((x) => x.name === t.name)?.[kind] ?? t[kind]}));
+      const l = await api('/api/templates', {method: 'PUT', body: merged});
+      last.current = JSON.stringify(l);
+      setTemplates(l);
+      say(`${kind === 'places' ? 'Places' : 'Characters'} saved`);
+    } catch (e: any) {
+      say(e.message);
+    }
+  };
+  const discard = () => {
+    if (!confirm('Throw away all changes since the last Save?')) return;
+    const l = JSON.parse(last.current);
+    setTemplates(l);
+    if (!(l.find((t: any) => t.name === tpl)?.[kind] || []).some((x: Char) => x.name === curName)) setCurName(firstName(l.find((t: any) => t.name === tpl)?.[kind] || []));
+  };
   useEffect(() => {
-    if (!templates.length || JSON.stringify(templates) === last.current) return;
-    setSaved(false);
-    const t = setTimeout(() => api('/api/templates', {method: 'PUT', body: templates}).then(() => ((last.current = JSON.stringify(templates)), setSaved(true))).catch((e) => say(e.message)), 600);
-    return () => clearTimeout(t);
-  }, [templates]);
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
   const list: Char[] = templates.find((t) => t.name === tpl)?.[kind] || [];
   const c = list.find((x) => x.name === curName);
   const setList = (f: (l: Char[]) => Char[]) => setTemplates((ts) => ts.map((t) => (t.name === tpl ? {...t, [kind]: f(t[kind] || [])} : t)));
@@ -975,6 +995,12 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   const grouped = kind === 'characters';
   return (
     <div className="chars pl">
+      {dirty && (
+        <div className="floatsave ch-save">
+          <button className="primary" onClick={save}>💾 Save changes</button>
+          <button className="small" onClick={discard}>Undo all</button>
+        </div>
+      )}
       <div className="pl-tree">
         {templates.map((t) => {
           const on = !shut[t.name];
@@ -1018,7 +1044,8 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
             setList(() => rest);
             setCurName(firstName(rest));
           }}>Delete</button>}
-          <span className="muted">{saved ? 'Saved' : 'Saving…'}</span>
+          <button className="primary" onClick={save} disabled={!dirty}>💾 Save</button>
+          <span className="muted">{dirty ? 'Not saved yet' : 'All saved'}</span>
         </div>
         {c ? (
           <div className="form">

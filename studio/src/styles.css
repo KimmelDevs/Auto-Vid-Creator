@@ -297,3 +297,4 @@ button.insert:hover { opacity: 1; border-color: var(--accent); color: var(--acce
 .pm-out { flex: 1; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.5; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 0; }
 .pm-refs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
 .pm-refs img { height: 64px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+.ch-save { display: flex; gap: 6px; align-items: center; }
