@@ -404,6 +404,22 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
   const K = rows * cols;
   const maxN = Math.max(0, ...proj.objects.map((o) => o.n), ...proj.images.map((i) => i.n));
   const slots = Array.from({length: maxN + 1}, (_, i) => i + 1);
+  // the SRT lines that belong to each image: from the line with its first [n.k] tag up to the next image's first tag
+  const srtFor = useMemo(() => {
+    const blocks = proj.script.replace(/\r/g, '').split(/\n\s*\n/).filter((b) => b.trim());
+    const firstOf = (n: number) => blocks.findIndex((b) => new RegExp(`\\[${n}[.\\-]\\d+\\]`).test(b));
+    return (n: number) => {
+      const a = firstOf(n);
+      if (a < 0) return '';
+      let b = blocks.length;
+      for (let k = n + 1; k <= maxN + 1; k++) {
+        const f = firstOf(k);
+        if (f > a) { b = f; break; }
+      }
+      return blocks.slice(a, Math.max(a + 1, b)).join('\n\n');
+    };
+  }, [proj.script, maxN]);
+  const [showSrt, setShowSrt] = useState<Record<number, boolean>>({});
 
   const uploadImg = async (n: number, f?: File) => {
     if (!f) return;
@@ -518,6 +534,10 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
               {n <= maxN && <button className="small ghost" onClick={() => del(n)} title="Delete this storyboard; later ones move down">🗑️ Delete</button>}
             </div>
             {imgMap[n] ? <img src={imgMap[n]} /> : <div className="drop">Drop image {n} here</div>}
+            <button className="small ghost srt-toggle" onClick={() => setShowSrt((m) => ({...m, [n]: !m[n]}))}>
+              {showSrt[n] ? '▲ Hide script' : '▼ Show script'}
+            </button>
+            {showSrt[n] && <pre className="srt-part">{srtFor(n) || `No [${n}.x] tags in the script yet.`}</pre>}
           </div>
           <div className="objs" style={{gridTemplateColumns: `repeat(${cols}, 1fr)`}}>
             {Array.from({length: K}, (_, i) => {
