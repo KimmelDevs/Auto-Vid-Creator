@@ -93,6 +93,13 @@ export const App: React.FC = () => {
   const [toast, setToast] = useState('');
   const [newName, setNewName] = useState('');
 
+  // sticky toolbars sit right under the header, however tall it wraps
+  const headerRef = useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    const set = () => document.documentElement.style.setProperty('--hdr', `${el.offsetHeight}px`);
+    set();
+    new ResizeObserver(set).observe(el);
+  }, []);
   const say = (m: string) => {
     setToast(m);
     setTimeout(() => setToast(''), 3500);
@@ -136,16 +143,7 @@ export const App: React.FC = () => {
         <button className={'navitem notes' + (current === '__notes' ? ' on' : '')} onClick={() => setCurrent('__notes')}>
           📝 Notes & prompts
         </button>
-        <div className="list">
-          {projects.map((p) => (
-            <button key={p.id} className={'navitem' + (p.id === current ? ' on' : '')} onClick={() => setCurrent(p.id)}>
-              <span className="pname">{p.id}</span>
-              <span className="meta">
-                {p.images} img{p.hasScript ? '' : ' · no script'}{p.hasVideo ? ' · 🎬' : ''}
-              </span>
-            </button>
-          ))}
-        </div>
+        <ProjectList projects={projects} current={current} pick={setCurrent} say={say} />
       </aside>
       <main>
         {current === '__notes' ? (
@@ -157,7 +155,7 @@ export const App: React.FC = () => {
           </div>
         ) : (
           <>
-            <header>
+            <header ref={headerRef}>
               <h2>{proj.id}</h2>
               <button className="small" title="Make the next part with the same settings" onClick={async () => {
                 const m = proj.id.match(/^(.*?)(\d+)$/);
@@ -195,6 +193,104 @@ export const App: React.FC = () => {
         )}
       </main>
       {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+};
+
+// ---------- sidebar: folders of projects ----------
+// drag a project onto a folder (or "No folder"); the arrow hides or shows a folder
+type Folder = {name: string; open: boolean; ids: string[]};
+const ProjectList: React.FC<{projects: any[]; current: string | null; pick: (id: string) => void; say: (m: string) => void}> = ({projects, current, pick, say}) => {
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [over, setOver] = useState<string | null>(null);
+  useEffect(() => void api('/api/folders').then(setFolders).catch(() => {}), []);
+  const put = (l: Folder[]) => {
+    setFolders(l);
+    api('/api/folders', {method: 'PUT', body: l}).catch((e) => say(e.message));
+  };
+  const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
+  const inFolder = new Set(folders.flatMap((f) => f.ids));
+  const loose = projects.filter((p) => !inFolder.has(p.id));
+  const moveTo = (id: string, name: string | null) => put(folders.map((f) => {
+    const ids = f.ids.filter((x) => x !== id);
+    return f.name === name ? {...f, open: true, ids: [...ids, id]} : {...f, ids};
+  }));
+  const drop = (e: React.DragEvent, name: string | null) => {
+    e.preventDefault();
+    setOver(null);
+    const id = e.dataTransfer.getData('text/project');
+    if (id) moveTo(id, name);
+  };
+  const zone = (name: string | null, key: string) => ({
+    onDragOver: (e: React.DragEvent) => (e.preventDefault(), setOver(key)),
+    onDragLeave: () => setOver((o) => (o === key ? null : o)),
+    onDrop: (e: React.DragEvent) => drop(e, name),
+  });
+  const addFolder = () => {
+    const name = prompt('Folder name:')?.trim();
+    if (!name) return;
+    if (folders.some((f) => f.name === name)) return say('That folder already exists');
+    put([...folders, {name, open: true, ids: []}]);
+  };
+  const rename = (f: Folder) => {
+    const name = prompt('New folder name:', f.name)?.trim();
+    if (name && name !== f.name && !folders.some((x) => x.name === name)) put(folders.map((x) => (x === f ? {...x, name} : x)));
+  };
+  const remove = (f: Folder) => {
+    if (confirm(`Delete folder "${f.name}"? The videos inside are kept and move to "No folder".`)) put(folders.filter((x) => x !== f));
+  };
+  const item = (p: any) => (
+    <button key={p.id} draggable onDragStart={(e) => e.dataTransfer.setData('text/project', p.id)} className={'navitem' + (p.id === current ? ' on' : '')} onClick={() => pick(p.id)}>
+      <span className="pname">{p.id}</span>
+      <span className="meta">
+        {p.images} img{p.hasScript ? '' : ' · no script'}{p.hasVideo ? ' · 🎬' : ''}
+      </span>
+    </button>
+  );
+  return (
+    <div className="list">
+      <button className="navitem newfolder" onClick={addFolder}>+ New folder</button>
+      {folders.map((f) => {
+        const items = f.ids.map((id) => byId[id]).filter(Boolean).sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
+        return (
+          <div key={f.name} className={'folder' + (over === f.name ? ' over' : '')} {...zone(f.name, f.name)}>
+            <div className="fhead">
+              <button className="farrow" title={f.open ? 'Hide' : 'Show'} onClick={() => put(folders.map((x) => (x === f ? {...x, open: !x.open} : x)))}>{f.open ? '▾' : '▸'}</button>
+              <span className="fname" onDoubleClick={() => rename(f)} title="Double-click to rename">{f.name}</span>
+              <span className="fcount">{items.length}</span>
+              <button className="farrow" title="Delete folder" onClick={() => remove(f)}>×</button>
+            </div>
+            {f.open && <div className="fitems">{items.map(item)}</div>}
+          </div>
+        );
+      })}
+      <div className={'folder' + (over === '__none' ? ' over' : '')} {...zone(null, '__none')}>
+        {folders.length > 0 && <div className="fhead"><span className="fname muted">No folder</span><span className="fcount">{loose.length}</span></div>}
+        {loose.map(item)}
+      </div>
+    </div>
+  );
+};
+
+// ---------- moving preview of an object and its effects ----------
+// nested layers, one per effect, so several effects can run together like in the video
+const FX_ANIM: Record<string, string> = {
+  shake: 'pv-shake .5s', 'shake:small': 'pv-shake-s .5s', 'shake:big': 'pv-shake-b .7s', boom: 'pv-boom .6s', knock: 'pv-shake-s .25s 2',
+  'knock:3': 'pv-shake-s .25s 6', zoom: 'pv-zoom .9s', 'heartbeat:3': 'pv-heart .83s 3', glitch: 'pv-glitch .5s steps(6)', rewind: 'pv-rewind 1s',
+};
+const FX_TINT: Record<string, string> = {
+  flash: 'pv-flash .5s', 'flash:red': 'pv-flash-red .5s', 'flash:orange': 'pv-flash-org .5s', 'red:3': 'pv-red 1s 3', fade: 'pv-fade 1.6s forwards', dark: 'pv-dark 2.4s forwards',
+};
+const CropPreview: React.FC<{style: any; fx: string[]; play: number}> = ({style, fx, play}) => {
+  const list = play ? fx.filter((v) => FX_ANIM[v]) : [];
+  const tints = play ? fx.filter((v) => FX_TINT[v]) : [];
+  // the base motion every object gets in the video: inked in, then a slow push in
+  let inner = <div className="crop-img" style={{...style, animation: play ? 'pv-ink 1.1s ease-out, pv-push 5s linear forwards' : undefined}} />;
+  for (const v of list) inner = <div className="crop-layer" style={{animation: FX_ANIM[v]}}>{inner}</div>;
+  return (
+    <div className="crop" key={play}>
+      {inner}
+      {tints.map((v) => <div key={v} className="crop-tint" style={{animation: FX_TINT[v]}} />)}
     </div>
   );
 };
@@ -327,6 +423,7 @@ const Script: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
               <option key={v.name} value={v.name}>{new Date(v.time).toLocaleString()}</option>
             ))}
           </select>
+          <button title="Copy the whole script" onClick={() => navigator.clipboard.writeText(text).then(() => say('Script copied'))}>📋 Copy</button>
           <button onClick={check} title="Find problems before building">Check script</button>
           <button onClick={suggest} title="Add sounds before words like roar, scream, door, rain">Suggest sounds</button>
           <span className="muted">{cues} subtitle lines · {objs} picture tags</span>
@@ -420,6 +517,8 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
     };
   }, [proj.script, maxN]);
   const [showSrt, setShowSrt] = useState<Record<number, boolean>>({});
+  const [plays, setPlays] = useState<Record<string, number>>({});  // counts up to restart an object's preview
+  const playObj = (key: string) => setPlays((m) => ({...m, [key]: (m[key] || 0) + 1}));
 
   const uploadImg = async (n: number, f?: File) => {
     if (!f) return;
@@ -554,13 +653,18 @@ const Images: React.FC<{proj: Project; reload: () => void; say: (m: string) => v
               const c = i % cols;
               return (
                 <div className={'obj' + (o ? '' : ' off')} key={key}>
-                  <div
-                    className="crop"
+                  <CropPreview
+                    play={plays[key] || 0}
+                    fx={fx[key] || []}
                     style={imgMap[n] ? {backgroundImage: `url(${imgMap[n]})`, backgroundSize: `${cols * 100}% ${rows * 100}%`, backgroundPosition: `${cols > 1 ? (c / (cols - 1)) * 100 : 0}% ${rows > 1 ? (r / (rows - 1)) * 100 : 0}%`} : undefined}
                   />
-                  <div className="okey">{key}</div>
+                  <div className="okey">
+                    {key}
+                    {imgMap[n] && <button className="iconbtn" title="Preview the motion and effects" onClick={() => playObj(key)}>▶</button>}
+                    {o?.text && <button className="iconbtn" title="Copy these words" onClick={() => navigator.clipboard.writeText(o.text).then(() => say('Copied'))}>📋</button>}
+                  </div>
                   <div className="otext" title={o?.text}>{o ? o.text || '…' : 'not in script'}</div>
-                  {o && <FxPicker list={fx[key] || []} onChange={(l) => setObjFx(key, l)} onSound={() => setSoundFor(key)} />}
+                  {o && <FxPicker list={fx[key] || []} onChange={(l) => (setObjFx(key, l), playObj(key))} onSound={() => setSoundFor(key)} />}
                 </div>
               );
             })}
@@ -960,13 +1064,14 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
   if (!proj.images.length) return <p className="muted">No images yet. Upload some in "2. Images & Effects" first.</p>;
   return (
     <div className="editor">
+      <div className="ed-sticky">
       <div className="row">
         <b>Image:</b>
         {proj.images.map((i) => (
           <button key={i.n} className={i.n === n ? 'primary small' : 'small'} onClick={() => choose(i.n)}>{i.n}</button>
         ))}
       </div>
-      <div className="row sticky ed-tools">
+      <div className="row ed-tools">
         {TOOLS.map(([k, label, tip]) => (
           <button key={k} className={tool === k ? 'on' : ''} title={tip} onClick={() => setTool(k)}>{label}</button>
         ))}
@@ -983,6 +1088,7 @@ const ImageEditor: React.FC<{proj: Project; reload: () => void; say: (m: string)
         <button className="primary" onClick={save} disabled={!dirty}>💾 Save</button>
         <button className="small" onClick={() => Array.from({length: rows * cols}, (_, i) => setTimeout(() => downloadCell(i), i * 300))} title="Save every box of this image as its own picture">⬇️ All objects</button>
         <button className="small ghost" onClick={restore}>Restore original</button>
+      </div>
       </div>
       <p className="muted">
         {TOOLS.find((t) => t[0] === tool)![2]}.{pasted ? ' A pasted picture is waiting: click an object.' : ''} Tip: copy a picture anywhere (e.g. ChatGPT), press Ctrl+V here, then click the object.
@@ -1839,6 +1945,7 @@ const YouTube: React.FC<{proj: Project; reload: () => void; say: (m: string) => 
         </div>
         <div className="row">
           <button className="primary" onClick={download} disabled={!pic}>Download thumbnail</button>
+          <button className="small" disabled={!pic} title="Copy the picture, then paste it anywhere" onClick={() => cv.current!.toBlob((b) => b && navigator.clipboard.write([new ClipboardItem({'image/png': b})]).then(() => say('Thumbnail copied')))}>📋 Copy</button>
           <button className="small" onClick={undoThumb} disabled={!hist.current.past.length} title="Ctrl+Z">↶ Undo</button>
           <button className="small" onClick={redoThumb} disabled={!hist.current.future.length} title="Ctrl+Y">↷ Redo</button>
           <button className="small ghost" onClick={resetThumb}>Reset</button>

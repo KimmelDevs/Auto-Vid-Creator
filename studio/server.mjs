@@ -550,6 +550,20 @@ app.post('/api/open', wrap((req) => {
   return {ok: true};
 }));
 
+// sidebar folders: [{name, open, ids: [project ids]}]; first run groups the existing projects by name
+const FOLDERS = path.join(HERE, 'folders.json');
+const seedFolders = () => {
+  const ids = fs.readdirSync(STORIES, {withFileTypes: true}).filter((e) => e.isDirectory()).map((e) => e.name);
+  const group = (name, re) => ({name, open: true, ids: ids.filter((i) => re.test(i))});
+  return [group('Bunker', /^part\d+/i), group('Pangaea', /^pangaea/i), group('Philippines', /^philippines/i)].filter((f) => f.ids.length);
+};
+app.get('/api/folders', wrap(() => readJson(FOLDERS, null) || seedFolders()));
+app.put('/api/folders', wrap((req) => {
+  const list = Array.isArray(req.body) ? req.body : [];
+  fs.writeFileSync(FOLDERS, JSON.stringify(list, null, 1));
+  return list;
+}));
+
 // YouTube templates (title, description, tags, end card, thumbnail text) shared by every project
 const TEMPLATES = path.join(HERE, 'templates.json');
 const SEED_TEMPLATES = [
