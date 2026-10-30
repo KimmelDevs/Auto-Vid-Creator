@@ -146,6 +146,9 @@ export const App: React.FC = () => {
         <button className={'navitem notes' + (current === '__render' ? ' on' : '')} onClick={() => setCurrent('__render')}>
           🎬 Render many
         </button>
+        <button className={'navitem notes' + (current === '__prompt' ? ' on' : '')} onClick={() => setCurrent('__prompt')}>
+          ✨ Prompt maker
+        </button>
         <ProjectList projects={projects} current={current} pick={setCurrent} say={say} />
       </aside>
       <main>
@@ -153,6 +156,8 @@ export const App: React.FC = () => {
           <Notes say={say} />
         ) : current === '__render' ? (
           <RenderMany say={say} />
+        ) : current === '__prompt' ? (
+          <PromptMaker say={say} />
         ) : !proj ? (
           <div className="empty">
             <h2>Pick a project on the left, or create a new one.</h2>
@@ -836,9 +841,80 @@ const ScriptTab: React.FC<{proj: Project; reload: () => void; say: (m: string) =
   );
 };
 
-type Char = {name: string; fields: {label: string; value: string}[]};
-const CHAR_FIELDS = ['Appearance', 'Face', 'Clothing', 'Personality'];
-const charText = (c: Char) => `${c.name}: ${c.fields.filter((f) => f.value.trim()).map((f) => `${f.label}: ${f.value.trim()}`).join('; ')}`;
+type Variant = {name: string; value: string; parts: string; where?: string; img?: string};
+type Char = {name: string; fields: {label: string; value: string}[]; group?: string; parts?: string; outfits?: Variant[]; conditions?: Variant[]; ages?: Variant[]};
+const CHAR_FIELDS = ['Appearance', 'Face', 'Height', 'Weight / build', 'Colours', 'Signature items', 'Do not draw', 'Personality', 'Relationships', 'Voice', 'Expressions'];
+const CHAR_GROUPS = ['Main', 'Side', 'Enemies', 'Creatures'];
+const charField = (c: Char, label: string) => c.fields.find((f) => f.label === label)?.value.trim() || '';
+const charText = (c: Char, outfit?: Variant) => {
+  const fit = outfit || c.outfits?.[0];
+  const main = c.fields.filter((f) => f.value.trim()).map((f) => `${f.label}: ${f.value.trim()}`);
+  return `${c.name}: ${[...main, ...(fit?.value ? [`Clothing: ${fit.value}`] : [])].join('; ')}`;
+};
+// "1-4, 7" or "all"; true when part n is in the list
+const inParts = (s: string | undefined, n: number) => {
+  if (!s || /all/i.test(s)) return true;
+  return s.split(',').some((x) => {
+    const [a, b] = x.trim().split('-').map(Number);
+    return n >= a && n <= (b || a);
+  });
+};
+// prompt for one full body reference picture of a character in one outfit or at one age
+const refPrompt = (c: Char, fit?: Variant, age?: Variant) => [
+  'Generate an image. Full body character reference sheet on a pure white background: the same character shown three times side by side, front view, side view and back view, standing in a relaxed neutral pose, head to toe fully visible with empty space around them.',
+  'Style: colourful hand-drawn manga doodle, clean black ink outlines filled with soft flat muted colours, simple expressive manga face with small solid oval eyes, a simple nose line and a short mouth line. No gradients, no textures, no 3D, not realistic. No background, no props on the floor, no text, letters or numbers anywhere.',
+  `Character: ${c.name}.`,
+  ...['Appearance', 'Face', 'Height', 'Weight / build', 'Colours', 'Signature items'].filter((l) => charField(c, l)).map((l) => `${l}: ${charField(c, l)}.`),
+  age ? `Age: ${age.value}.` : '',
+  fit?.value ? `Wearing: ${fit.value}.` : '',
+  charField(c, 'Do not draw') ? `Do not draw: ${charField(c, 'Do not draw')}.` : '',
+].filter(Boolean).join('\n');
+
+// outfits, conditions and ages: named looks, each for certain parts, each with an optional reference picture
+const Variants: React.FC<{title: string; list: Variant[]; set: (l: Variant[]) => void; where?: boolean; ref_?: (v: Variant) => string; tpl: string; who: string; copy: (t: string) => void; say: (m: string) => void}> = ({title, list, set, where, ref_, tpl, who, copy, say}) => {
+  const edit = (i: number, p: Partial<Variant>) => set(list.map((x, k) => (k === i ? {...x, ...p} : x)));
+  const upload = async (i: number, f?: File) => {
+    if (!f) return;
+    const form = new FormData();
+    form.append('file', f);
+    try {
+      const {url} = await api(`/api/refs?template=${encodeURIComponent(tpl)}&char=${encodeURIComponent(who)}&name=${encodeURIComponent(list[i].name)}`, {form});
+      edit(i, {img: url});
+      say('Reference picture saved');
+    } catch (e: any) {
+      say(e.message);
+    }
+  };
+  return (
+    <details className="vr" open={list.length > 0}>
+      <summary>{title} <span className="muted">{list.length}</span></summary>
+      {list.map((x, i) => (
+        <div key={i} className="vr-item" tabIndex={0} onPaste={(e) => upload(i, [...e.clipboardData.files][0])}>
+          <div className="vr-pic">
+            {x.img ? <a href={x.img} target="_blank"><img src={x.img} /></a> : <span className="muted">no picture</span>}
+            <label className="btn small">Upload<input type="file" accept="image/*" hidden onChange={(e) => upload(i, e.target.files?.[0])} /></label>
+          </div>
+          <div className="vr-body">
+            <div className="row tight">
+              <input className="flabel" value={x.name} onChange={(e) => edit(i, {name: e.target.value})} />
+              {where && (
+                <select value={x.where || 'Any'} onChange={(e) => edit(i, {where: e.target.value})}>
+                  {['Any', 'Indoors', 'Outdoors'].map((w) => <option key={w}>{w}</option>)}
+                </select>
+              )}
+              <input className="vr-parts" title="Parts, like 1-4, 7 or all" value={x.parts} onChange={(e) => edit(i, {parts: e.target.value})} />
+              <button className="small" title="Copy this text" onClick={() => copy(x.value)} disabled={!x.value.trim()}>📋</button>
+              {ref_ && <button className="small" title="Copy a prompt for a full body reference picture" onClick={() => copy(ref_(x))}>🧍 Ref prompt</button>}
+              <button className="small ghost" onClick={() => set(list.filter((_, k) => k !== i))}>Remove</button>
+            </div>
+            <textarea rows={2} value={x.value} onChange={(e) => edit(i, {value: e.target.value})} />
+          </div>
+        </div>
+      ))}
+      <button className="small" onClick={() => set([...list, {name: `New ${title.toLowerCase().replace(/s$/, '')}`, value: '', parts: 'all', img: '', ...(where ? {where: 'Any'} : {})}])}>+ Add</button>
+    </details>
+  );
+};
 
 // characters and places live in the YouTube templates, so every part of a series shares them
 const KINDS = {
@@ -850,7 +926,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   const [templates, setTemplates] = useState<any[]>([]);
   const [tpl, setTpl] = useState('');
   const [curName, setCurName] = useState('');
-  const [shut, setShut] = useState<Record<string, boolean>>({});  // folders hidden in the Places list
+  const [shut, setShut] = useState<Record<string, boolean>>({});  // folders hidden in the list
   const [saved, setSaved] = useState(true);
   const last = useRef('');  // what is on disk, so opening the tab does not write anything
   const firstName = (l: Char[]) => [...l].sort((x, y) => x.name.localeCompare(y.name))[0]?.name || '';
@@ -872,19 +948,22 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
     return () => clearTimeout(t);
   }, [templates]);
   const list: Char[] = templates.find((t) => t.name === tpl)?.[kind] || [];
-  const sorted = [...list].sort((x, y) => x.name.localeCompare(y.name));
   const c = list.find((x) => x.name === curName);
   const setList = (f: (l: Char[]) => Char[]) => setTemplates((ts) => ts.map((t) => (t.name === tpl ? {...t, [kind]: f(t[kind] || [])} : t)));
   const change = (f: (c: Char) => Char) => setList((l) => l.map((x) => (x.name === curName ? f(x) : x)));
-  const pickTemplate = (name: string) => {
-    setTpl(name);
-    setCurName(firstName(templates.find((t) => t.name === name)?.[kind] || []));
-  };
   const add = () => {
     const name = prompt(`Name of the new ${K.one}:`)?.trim();
     if (!name) return;
     if (list.some((x) => x.name.toLowerCase() === name.toLowerCase())) return say(`${name} already exists`);
-    setList((l) => [...l, {name, fields: K.fields.map((label) => ({label, value: ''}))}]);
+    const extra = kind === 'characters' ? {group: 'Side', parts: 'all', outfits: [{name: 'Normal', where: 'Any', value: '', parts: 'all', img: ''}], conditions: [], ages: []} : {};
+    setList((l) => [...l, {name, fields: K.fields.map((label) => ({label, value: ''})), ...extra}]);
+    setCurName(name);
+  };
+  const duplicate = () => {
+    if (!c) return;
+    const name = prompt('Name of the copy:', `${c.name} copy`)?.trim();
+    if (!name || list.some((x) => x.name === name)) return;
+    setList((l) => [...l, {...JSON.parse(JSON.stringify(c)), name}]);
     setCurName(name);
   };
   const addField = () => {
@@ -893,84 +972,296 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
   };
   const copy = (t: string) => navigator.clipboard.writeText(t).then(() => say('Copied'));
   if (!templates.length) return <p className="muted">Make a template in the YouTube tab first; {kind} are kept with templates.</p>;
-  const tree = kind === 'places';
+  const grouped = kind === 'characters';
   return (
-    <div className={tree ? 'chars pl' : 'chars'}>
-      {tree && (
-        <div className="pl-tree">
-          {templates.map((t) => {
-            const on = !shut[t.name];
-            const items = [...(t.places || [])].sort((x: Char, y: Char) => x.name.localeCompare(y.name));
-            return (
-              <div key={t.name}>
-                <button className="pl-folder" onClick={() => setShut((m) => ({...m, [t.name]: on}))}>
-                  {on ? '▾' : '▸'} 📁 {t.name} <span className="muted">{items.length}</span>
-                </button>
-                {on && items.map((x: Char) => (
-                  <button key={x.name} className={'pl-item' + (t.name === tpl && x.name === curName ? ' on' : '')} onClick={() => (setTpl(t.name), setCurName(x.name))}>{x.name}</button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <div className="pl-main">
-      <div className="row">
-        {tree && <b>{tpl}</b>}
-        {!tree && <b>Template</b>}
-        {!tree && (
-          <select value={tpl} onChange={(e) => pickTemplate(e.target.value)}>
-            {templates.map((t) => <option key={t.name}>{t.name}</option>)}
-          </select>
-        )}
-        {!tree && <b>Character</b>}
-        {!tree && (
-          <select value={c ? curName : ''} onChange={(e) => setCurName(e.target.value)} disabled={!list.length}>
-            {!list.length && <option value="">No {kind} yet</option>}
-            {sorted.map((x) => <option key={x.name}>{x.name}</option>)}
-          </select>
-        )}
-        <button className="primary" onClick={add}>+ New {K.one}</button>
-        {c && <button className="small" onClick={() => {
-          const name = prompt('New name:', c.name)?.trim();
-          if (!name || name === c.name) return;
-          change((x) => ({...x, name}));
-          setCurName(name);
-        }}>Rename</button>}
-        {c && <button className="small ghost" onClick={() => {
-          if (!confirm(`Delete ${c.name}?`)) return;
-          const rest = list.filter((x) => x.name !== c.name);
-          setList(() => rest);
-          setCurName(firstName(rest));
-        }}>Delete</button>}
-        <span className="muted">{saved ? 'Saved' : 'Saving…'}</span>
+    <div className="chars pl">
+      <div className="pl-tree">
+        {templates.map((t) => {
+          const on = !shut[t.name];
+          const items: Char[] = [...(t[kind] || [])].sort((x: Char, y: Char) => x.name.localeCompare(y.name));
+          const groups = grouped ? [...CHAR_GROUPS, ...new Set(items.map((x) => x.group || 'Side'))].filter((g, i, a) => a.indexOf(g) === i) : [''];
+          return (
+            <div key={t.name}>
+              <button className="pl-folder" onClick={() => setShut((m) => ({...m, [t.name]: on}))}>
+                {on ? '▾' : '▸'} 📁 {t.name} <span className="muted">{items.length}</span>
+              </button>
+              {on && groups.map((g) => {
+                const inside = items.filter((x) => !grouped || (x.group || 'Side') === g);
+                if (!inside.length) return null;
+                return (
+                  <div key={g}>
+                    {g && <div className="pl-group">{g}</div>}
+                    {inside.map((x) => (
+                      <button key={x.name} className={'pl-item' + (t.name === tpl && x.name === curName ? ' on' : '')} onClick={() => (setTpl(t.name), setCurName(x.name))}>{x.name}</button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
-      {c ? (
-        <div className="form">
-          <h3>{c.name}</h3>
-          {c.fields.map((f, k) => (
-            <label key={k}>
-              <span className="row tight">
-                <input className="flabel" value={f.label} onChange={(e) => change((x) => ({...x, fields: x.fields.map((y, j) => (j === k ? {...y, label: e.target.value} : y))}))} />
-                <button className="small" title={`Copy ${f.label}`} onClick={() => copy(f.value)} disabled={!f.value.trim()}>📋</button>
-                <button className="small ghost" onClick={() => change((x) => ({...x, fields: x.fields.filter((_, j) => j !== k)}))}>Remove</button>
-              </span>
-              <textarea rows={3} value={f.value} placeholder={`${c.name}'s ${f.label.toLowerCase()}…`} onChange={(e) => change((x) => ({...x, fields: x.fields.map((y, j) => (j === k ? {...y, value: e.target.value} : y))}))} />
-            </label>
-          ))}
-          <div className="row">
-            <button onClick={addField}>+ Add info</button>
-            <button className="primary" onClick={() => copy(charText(c))}>📋 Copy for prompt</button>
-            {list.length > 1 && <button className="small" onClick={() => copy(sorted.map(charText).join('\n'))}>Copy all {kind}</button>}
-          </div>
-          <div className="srt-wrap">
-            <button className="small srt-copy" title="Copy for prompt" onClick={() => copy(charText(c))}>📋 Copy</button>
-            <div className="ytout"><pre>{charText(c)}</pre></div>
-          </div>
+      <div className="pl-main">
+        <div className="row">
+          <b>{tpl}</b>
+          <button className="primary" onClick={add}>+ New {K.one}</button>
+          {c && <button className="small" onClick={() => {
+            const name = prompt('New name:', c.name)?.trim();
+            if (!name || name === c.name) return;
+            change((x) => ({...x, name}));
+            setCurName(name);
+          }}>Rename</button>}
+          {c && grouped && <button className="small" onClick={duplicate}>Duplicate</button>}
+          {c && <button className="small ghost" onClick={() => {
+            if (!confirm(`Delete ${c.name}?`)) return;
+            const rest = list.filter((x) => x.name !== c.name);
+            setList(() => rest);
+            setCurName(firstName(rest));
+          }}>Delete</button>}
+          <span className="muted">{saved ? 'Saved' : 'Saving…'}</span>
         </div>
-      ) : (
-        <p className="muted">{K.hint}</p>
-      )}
+        {c ? (
+          <div className="form">
+            <h3>{c.name}</h3>
+            {grouped && (
+              <div className="row tight">
+                <label>Group <select value={c.group || 'Side'} onChange={(e) => change((x) => ({...x, group: e.target.value}))}>{CHAR_GROUPS.map((g) => <option key={g}>{g}</option>)}</select></label>
+                <label>In parts <input className="vr-parts" value={c.parts || 'all'} title="Parts this character is in, like 1-4, 7 or all" onChange={(e) => change((x) => ({...x, parts: e.target.value}))} /></label>
+              </div>
+            )}
+            {grouped && (
+              <>
+                <Variants title="Outfits" where list={c.outfits || []} set={(l) => change((x) => ({...x, outfits: l}))} ref_={(v) => refPrompt(c, v)} tpl={tpl} who={c.name} copy={copy} say={say} />
+                <Variants title="Conditions" list={c.conditions || []} set={(l) => change((x) => ({...x, conditions: l}))} tpl={tpl} who={c.name} copy={copy} say={say} />
+                <Variants title="Ages" list={c.ages || []} set={(l) => change((x) => ({...x, ages: l}))} ref_={(v) => refPrompt(c, c.outfits?.[0], v)} tpl={tpl} who={c.name} copy={copy} say={say} />
+              </>
+            )}
+            {c.fields.map((f, k) => (
+              <label key={k}>
+                <span className="row tight">
+                  <input className="flabel" value={f.label} onChange={(e) => change((x) => ({...x, fields: x.fields.map((y, j) => (j === k ? {...y, label: e.target.value} : y))}))} />
+                  <button className="small" title={`Copy ${f.label}`} onClick={() => copy(f.value)} disabled={!f.value.trim()}>📋</button>
+                  <button className="small ghost" onClick={() => change((x) => ({...x, fields: x.fields.filter((_, j) => j !== k)}))}>Remove</button>
+                </span>
+                <textarea rows={2} value={f.value} placeholder={`${c.name}'s ${f.label.toLowerCase()}…`} onChange={(e) => change((x) => ({...x, fields: x.fields.map((y, j) => (j === k ? {...y, value: e.target.value} : y))}))} />
+              </label>
+            ))}
+            <div className="row">
+              <button onClick={addField}>+ Add info</button>
+              <button className="primary" onClick={() => copy(charText(c))}>📋 Copy for prompt</button>
+              {list.length > 1 && <button className="small" onClick={() => copy([...list].sort((x, y) => x.name.localeCompare(y.name)).map((x) => charText(x)).join('\n'))}>Copy all {kind}</button>}
+            </div>
+            <div className="srt-wrap">
+              <button className="small srt-copy" title="Copy for prompt" onClick={() => copy(charText(c))}>📋 Copy</button>
+              <div className="ytout"><pre>{charText(c)}</pre></div>
+            </div>
+          </div>
+        ) : (
+          <p className="muted">{K.hint}</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ---------- prompt maker: tick what you want, get a prompt that asks ChatGPT or DeepSeek to write the image prompt ----------
+type Pick = {on: boolean; outfit: string; age: string; conds: string[]; fields: string[]};
+const DEFAULT_FIELDS = ['Appearance', 'Face', 'Height', 'Weight / build', 'Colours', 'Signature items', 'Do not draw'];
+const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [notes, setNotes] = useState<{title: string; body: string}[]>([]);
+  const [tpl, setTpl] = useState('');
+  const [part, setPart] = useState(1);
+  const [picks, setPicks] = useState<Record<string, Pick>>({});
+  const [places, setPlaces] = useState<Record<string, string[]>>({});
+  const [useNotes, setUseNotes] = useState<string[]>([]);
+  const [scene, setScene] = useState('');
+  const [script, setScript] = useState('');
+  const [imgN, setImgN] = useState(0);
+  const [grid, setGrid] = useState(true);
+  useEffect(() => {
+    api('/api/templates').then((l) => (setTemplates(l), setTpl(l[0]?.name || '')));
+    api('/api/folders').then(setFolders).catch(() => {});
+    api('/api/notes').then((n) => {
+      const l = n.text.split(/^## /m).slice(1).map((s: string) => ({title: s.split('\n')[0].trim(), body: s.split('\n').slice(1).join('\n').trim()}));
+      setNotes(l);
+      setUseNotes(l.filter((x: any) => /^Art style \(|^Faces/.test(x.title)).map((x: any) => x.title));
+    });
+  }, []);
+  const t = templates.find((x) => x.name === tpl);
+  const chars: Char[] = [...(t?.characters || [])].sort((a: Char, b: Char) => a.name.localeCompare(b.name));
+  const here = chars.filter((c) => inParts(c.parts, part));
+  const pl: Char[] = [...(t?.places || [])].sort((a: Char, b: Char) => a.name.localeCompare(b.name));
+  const ids = (folders.find((f) => f.name === tpl)?.ids || []).slice().sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+  const project = ids.find((id) => Number(id.match(/(\d+)\D*$/)?.[1]) === part);
+  const parts = ids.length || 15;
+  // default look of a character for this part
+  const auto = (c: Char): Pick => ({
+    on: false,
+    outfit: (c.outfits || []).find((o) => inParts(o.parts, part))?.name || '',
+    age: (c.ages || []).find((o) => inParts(o.parts, part))?.name || '',
+    conds: [],
+    fields: c.fields.filter((f) => DEFAULT_FIELDS.includes(f.label) && f.value.trim()).map((f) => f.label),
+  });
+  useEffect(() => setPicks((m) => {
+    const n: Record<string, Pick> = {};
+    for (const c of chars) n[c.name] = {...auto(c), on: !!m[c.name]?.on, fields: m[c.name]?.fields || auto(c).fields};
+    return n;
+  }), [tpl, part, templates]);
+  useEffect(() => {
+    setImgN(0);
+    setScript('');
+  }, [tpl, part]);
+  useEffect(() => {
+    if (!project || !imgN) return setScript('');
+    api(`/api/projects/${project}`).then((pr) => {
+      const blocks = pr.script.replace(/\r/g, '').split(/\n\s*\n/).filter((b: string) => b.trim());
+      const first = (n: number) => blocks.findIndex((b: string) => new RegExp(`\\[${n}[.\\-]\\d+\\]`).test(b));
+      const a = first(imgN);
+      let b = blocks.length;
+      for (let k = imgN + 1; k < imgN + 30; k++) {
+        const f = first(k);
+        if (f > a) { b = f; break; }
+      }
+      setScript(a < 0 ? '' : blocks.slice(a, b).map((x: string) => x.split('\n').filter((l) => !/^\d+$|-->/.test(l)).join(' ').replace(/\[(?!\d+[.\-]\d+\])[^\]]*\]/g, '')).join('\n'));
+    });
+  }, [project, imgN]);
+  const upd = (name: string, p: Partial<Pick>) => setPicks((m) => ({...m, [name]: {...m[name], ...p}}));
+  const flip = (l: string[], v: string) => (l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
+  const chosen = chars.filter((c) => picks[c.name]?.on);
+  const refs: {who: string; url: string}[] = [];
+  const charBlock = (c: Char) => {
+    const k = picks[c.name];
+    const fit = (c.outfits || []).find((o) => o.name === k.outfit);
+    const age = (c.ages || []).find((o) => o.name === k.age);
+    const lines = [`${c.name.toUpperCase()}`, ...c.fields.filter((f) => k.fields.includes(f.label) && f.value.trim()).map((f) => `- ${f.label}: ${f.value.trim()}`)];
+    if (age) lines.push(`- Age: ${age.value}`);
+    if (fit?.value) lines.push(`- Clothing (${fit.name}): ${fit.value}`);
+    for (const x of c.conditions || []) if (k.conds.includes(x.name)) lines.push(`- Condition: ${x.value}`);
+    if (fit?.img) refs.push({who: `${c.name} - ${fit.name}`, url: fit.img});
+    return lines.join('\n');
+  };
+  const placeBlock = (name: string) => {
+    const x = pl.find((y) => y.name === name);
+    return x ? [`${x.name}`, ...x.fields.filter((f) => places[name].includes(f.label) && f.value.trim()).map((f) => `- ${f.label}: ${f.value.trim()}`)].join('\n') : '';
+  };
+  const blocks = [
+    'You write image prompts. Using only the details below, write one finished, ready-to-paste image generation prompt. Keep every detail about the characters and places exactly as given. Do not invent new characters. Output only the finished prompt.',
+    `SERIES: ${t?.series?.trim() || tpl}, part ${part}`,
+    ...notes.filter((n) => useNotes.includes(n.title)).map((n) => `${n.title.toUpperCase()}:\n${n.body}`),
+    grid ? 'LAYOUT: 6 objects of equal size in a strict grid of two rows of three, each a separate drawing centred in its own cell on plain white, with wide gaps. Number them 1 to 6 in reading order.' : 'LAYOUT: one single full image.',
+    chosen.length ? `CHARACTERS:\n${chosen.map(charBlock).join('\n\n')}` : '',
+    Object.keys(places).length ? `PLACES:\n${Object.keys(places).map(placeBlock).join('\n\n')}` : '',
+    script ? `SCRIPT FOR THIS IMAGE:\n${script}` : '',
+    scene.trim() ? `WHAT TO SHOW:\n${scene.trim()}` : '',
+  ].filter(Boolean).join('\n\n');
+  return (
+    <div className="notes pm">
+      <header>
+        <h2>Prompt maker</h2>
+        <span className="muted">Tick what you need. The result is a prompt that asks ChatGPT or DeepSeek to write the image prompt.</span>
+      </header>
+      <div className="pm-cols">
+        <div className="pm-left">
+          <div className="row tight">
+            <label>Series <select value={tpl} onChange={(e) => (setTpl(e.target.value), setPlaces({}), setPicks({}))}>{templates.map((x) => <option key={x.name}>{x.name}</option>)}</select></label>
+            <label>Part <select value={part} onChange={(e) => setPart(Number(e.target.value))}>{Array.from({length: parts}, (_, i) => <option key={i}>{i + 1}</option>)}</select></label>
+            {project && <label>Image <input className="vr-parts" type="number" min={0} value={imgN} title="0 = no script lines" onChange={(e) => setImgN(Number(e.target.value))} /></label>}
+            <label><input type="checkbox" checked={grid} onChange={(e) => setGrid(e.target.checked)} /> 6-object grid</label>
+          </div>
+          <details open>
+            <summary><b>Characters</b> <span className="muted">{chosen.length} picked, showing part {part}</span></summary>
+            {here.map((c) => {
+              const k = picks[c.name];
+              if (!k) return null;
+              return (
+                <div key={c.name} className="pm-item">
+                  <label><input type="checkbox" checked={k.on} onChange={(e) => upd(c.name, {on: e.target.checked})} /> <b>{c.name}</b> {(c.group && <span className="muted">{c.group}</span>)}</label>
+                  {k.on && (
+                    <details open className="pm-sub">
+                      <summary>Details</summary>
+                      {!!c.outfits?.length && (
+                        <details open><summary>Clothing</summary>
+                          {c.outfits.map((o) => (
+                            <label key={o.name} className={inParts(o.parts, part) ? '' : 'muted'}>
+                              <input type="radio" name={`o-${c.name}`} checked={k.outfit === o.name} onChange={() => upd(c.name, {outfit: o.name})} /> {o.name} <span className="muted">{o.where} · parts {o.parts}</span>
+                            </label>
+                          ))}
+                        </details>
+                      )}
+                      {!!c.ages?.length && (
+                        <details open><summary>Age</summary>
+                          {c.ages.map((o) => (
+                            <label key={o.name} className={inParts(o.parts, part) ? '' : 'muted'}>
+                              <input type="radio" name={`a-${c.name}`} checked={k.age === o.name} onChange={() => upd(c.name, {age: o.name})} /> {o.name} <span className="muted">parts {o.parts}</span>
+                            </label>
+                          ))}
+                        </details>
+                      )}
+                      {!!c.conditions?.length && (
+                        <details open><summary>Condition</summary>
+                          {c.conditions.map((o) => (
+                            <label key={o.name} className={inParts(o.parts, part) ? '' : 'muted'}>
+                              <input type="checkbox" checked={k.conds.includes(o.name)} onChange={() => upd(c.name, {conds: flip(k.conds, o.name)})} /> {o.name} <span className="muted">parts {o.parts}</span>
+                            </label>
+                          ))}
+                        </details>
+                      )}
+                      <details><summary>Info to include</summary>
+                        {c.fields.filter((f) => f.value.trim()).map((f) => (
+                          <label key={f.label}><input type="checkbox" checked={k.fields.includes(f.label)} onChange={() => upd(c.name, {fields: flip(k.fields, f.label)})} /> {f.label}</label>
+                        ))}
+                      </details>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
+          </details>
+          <details open>
+            <summary><b>Places</b> <span className="muted">{Object.keys(places).length} picked</span></summary>
+            {pl.map((x) => (
+              <div key={x.name} className="pm-item">
+                <label><input type="checkbox" checked={!!places[x.name]} onChange={(e) => setPlaces((m) => {
+                  const n = {...m};
+                  if (e.target.checked) n[x.name] = x.fields.filter((f) => f.value.trim()).map((f) => f.label);
+                  else delete n[x.name];
+                  return n;
+                })} /> {x.name}</label>
+                {places[x.name] && (
+                  <details className="pm-sub"><summary>Info to include</summary>
+                    {x.fields.filter((f) => f.value.trim()).map((f) => (
+                      <label key={f.label}><input type="checkbox" checked={places[x.name].includes(f.label)} onChange={() => setPlaces((m) => ({...m, [x.name]: flip(m[x.name], f.label)}))} /> {f.label}</label>
+                    ))}
+                  </details>
+                )}
+              </div>
+            ))}
+          </details>
+          <details>
+            <summary><b>Notes</b> <span className="muted">{useNotes.length} picked</span></summary>
+            {notes.map((n) => (
+              <label key={n.title} className="pm-note"><input type="checkbox" checked={useNotes.includes(n.title)} onChange={() => setUseNotes((l) => flip(l, n.title))} /> {n.title}</label>
+            ))}
+          </details>
+          <label className="pm-scene"><b>What to show</b>
+            <textarea rows={4} value={scene} placeholder="Describe the scene in your own words, or list the 6 objects…" onChange={(e) => setScene(e.target.value)} />
+          </label>
+        </div>
+        <div className="pm-right">
+          <div className="row tight">
+            <button className="primary" onClick={() => navigator.clipboard.writeText(blocks).then(() => say('Prompt copied'))}>📋 Copy prompt</button>
+            <span className="muted">{blocks.length} characters</span>
+          </div>
+          {refs.length > 0 && (
+            <div className="pm-refs">
+              <span className="muted">Upload these with the prompt:</span>
+              {refs.map((r) => <a key={r.url} href={r.url} download title={r.who}><img src={r.url} /></a>)}
+            </div>
+          )}
+          <pre className="pm-out">{blocks}</pre>
+        </div>
       </div>
     </div>
   );

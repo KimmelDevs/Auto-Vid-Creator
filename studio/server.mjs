@@ -189,6 +189,7 @@ app.use('/stories', express.static(STORIES));
 app.use('/jobs', express.static(path.join(ROOT, 'public', 'jobs'), {etag: false, maxAge: 0}));
 app.use('/videos', express.static(OUT));
 app.use('/sfx', express.static(SFX));
+app.use('/refs', express.static(path.join(HERE, 'refs')));
 const wrap = (fn) => (req, res) => {
   try {
     const r = fn(req, res);
@@ -334,6 +335,17 @@ app.post('/api/projects/:id/images/:n/delete', wrap((req) => {
   shiftFiles(path.join(d, 'images'), n + 1, -1);
   shiftFiles(path.join(d, 'images_backup'), n + 1, -1);
   return {ok: true};
+}));
+
+// full body reference pictures: studio/refs/<template>/<character>_<look>.<ext>
+app.post('/api/refs', upload.single('file'), wrap((req) => {
+  const ext = path.extname(req.file?.originalname || '').toLowerCase() || '.png';
+  if (!req.file || !IMG_EXT.includes(ext)) throw Object.assign(new Error('upload a png, jpg or webp image'), {status: 400});
+  const dir = path.join(HERE, 'refs', slug(req.query.template));
+  const name = `${slug(req.query.char)}_${slug(req.query.name)}${ext}`;
+  fs.mkdirSync(dir, {recursive: true});
+  fs.writeFileSync(path.join(dir, name), req.file.buffer);
+  return {url: `/refs/${slug(req.query.template)}/${name}?v=${Date.now()}`};
 }));
 
 // put back the original saved by the image editor
