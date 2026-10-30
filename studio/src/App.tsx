@@ -681,6 +681,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
             <label key={k}>
               <span className="row tight">
                 <input className="flabel" value={f.label} onChange={(e) => change((x) => ({...x, fields: x.fields.map((y, j) => (j === k ? {...y, label: e.target.value} : y))}))} />
+                <button className="small" title={`Copy ${f.label}`} onClick={() => copy(f.value)} disabled={!f.value.trim()}>📋</button>
                 <button className="small ghost" onClick={() => change((x) => ({...x, fields: x.fields.filter((_, j) => j !== k)}))}>Remove</button>
               </span>
               <textarea rows={3} value={f.value} placeholder={`${c.name}'s ${f.label.toLowerCase()}…`} onChange={(e) => change((x) => ({...x, fields: x.fields.map((y, j) => (j === k ? {...y, value: e.target.value} : y))}))} />
@@ -691,7 +692,10 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
             <button className="primary" onClick={() => copy(charText(c))}>📋 Copy for prompt</button>
             {list.length > 1 && <button className="small" onClick={() => copy(sorted.map(charText).join('\n'))}>Copy all {kind}</button>}
           </div>
-          <div className="ytout"><pre>{charText(c)}</pre></div>
+          <div className="srt-wrap">
+            <button className="small srt-copy" title="Copy for prompt" onClick={() => copy(charText(c))}>📋 Copy</button>
+            <div className="ytout"><pre>{charText(c)}</pre></div>
+          </div>
         </div>
       ) : (
         <p className="muted">{K.hint}</p>
