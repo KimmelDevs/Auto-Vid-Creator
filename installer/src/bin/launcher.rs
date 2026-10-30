@@ -39,13 +39,13 @@ fn main() {
         }
     };
 
-    // wait up to 30s for the server to accept connections, then open the browser
+    // wait up to 30s for the server to accept connections, then open an app window
     let url = format!("http://localhost:{PORT}");
     let start = Instant::now();
     let mut opened = false;
     while start.elapsed() < Duration::from_secs(30) {
         if TcpStream::connect(("127.0.0.1", PORT.parse().unwrap())).is_ok() {
-            Command::new("cmd").args(["/c", "start", "", &url]).spawn().ok();
+            open_app_window(&dir, &url);
             opened = true;
             break;
         }
@@ -59,6 +59,31 @@ fn main() {
     println!("Keep this window open while you work. Close it to stop Story Maker Studio.");
 
     child.wait().ok();
+}
+
+// open the studio in its own chromeless window (looks like a desktop app), using Edge or
+// Chrome in "--app" mode. Each gets its own profile folder so it is a clean, separate window.
+fn open_app_window(dir: &std::path::Path, url: &str) {
+    let profile = dir.join("window");
+    let app_arg = format!("--app={url}");
+    let data_arg = format!("--user-data-dir={}", profile.display());
+    let args = [app_arg.as_str(), data_arg.as_str(), "--window-size=1400,900", "--no-first-run"];
+
+    let candidates = [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ];
+    for exe in candidates {
+        if std::path::Path::new(exe).exists() {
+            if Command::new(exe).args(args).spawn().is_ok() {
+                return;
+            }
+        }
+    }
+    // no Edge or Chrome found: fall back to the default browser (a normal tab)
+    Command::new("cmd").args(["/c", "start", "", url]).spawn().ok();
 }
 
 fn wait_enter() {
