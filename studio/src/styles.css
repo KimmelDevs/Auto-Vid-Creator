@@ -307,3 +307,6 @@ button.insert:hover { opacity: 1; border-color: var(--accent); color: var(--acce
 .app.hide-main .mainside { left: 6px; }
 .app.hide-main main > header { padding-left: 44px; }
 .hide-side > .pl-tree, .hide-side > .nt-list, .hide-side > .pm-left, .hide-side > .rm-side { display: none; }
+
+.vr-pick { margin: 6px 0; }
+.vr-pick select { font-weight: 700; min-width: 180px; }

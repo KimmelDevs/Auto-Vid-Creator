@@ -889,12 +889,31 @@ const refPrompt = (c: Char, fit?: Variant, age?: Variant) => [
 // outfits, conditions and ages: named looks, each for certain parts, each with an optional reference picture
 const Variants: React.FC<{title: string; list: Variant[]; set: (l: Variant[]) => void; where?: boolean; ref_?: (v: Variant) => string; tpl: string; who: string; copy: (t: string) => void; say: (m: string) => void}> = ({title, list, set, where, ref_, tpl, who, copy, say}) => {
   const edit = (i: number, p: Partial<Variant>) => set(list.map((x, k) => (k === i ? {...x, ...p} : x)));
+  // outfits: pick one from the dropdown, each can have its own Indoors / Outdoors / Any version
+  const [pick, setPick] = useState('');
+  const names = [...new Set(list.map((x) => x.name))];
+  const cur = names.includes(pick) ? pick : names[0] || '';
+  const addOutfit = () => {
+    const name = prompt('Name of the new outfit:')?.trim();
+    if (!name) return;
+    if (!names.includes(name)) set([...list, {name, where: 'Any', value: '', parts: 'all', img: ''}]);
+    setPick(name);
+  };
+  const renameOutfit = () => {
+    const name = prompt('New outfit name:', cur)?.trim();
+    if (!name || name === cur) return;
+    set(list.map((x) => (x.name === cur ? {...x, name} : x)));
+    setPick(name);
+  };
+  const dropOutfit = () => {
+    if (confirm(`Delete the outfit "${cur}" and all its versions?`)) set(list.filter((x) => x.name !== cur));
+  };
   const upload = async (i: number, f?: File) => {
     if (!f) return;
     const form = new FormData();
     form.append('file', f);
     try {
-      const {url} = await api(`/api/refs?template=${encodeURIComponent(tpl)}&char=${encodeURIComponent(who)}&name=${encodeURIComponent(list[i].name)}`, {form});
+      const {url} = await api(`/api/refs?template=${encodeURIComponent(tpl)}&char=${encodeURIComponent(who)}&name=${encodeURIComponent(where ? `${list[i].name} ${list[i].where}` : list[i].name)}`, {form});
       edit(i, {img: url});
       say('Reference picture saved');
     } catch (e: any) {
@@ -903,8 +922,18 @@ const Variants: React.FC<{title: string; list: Variant[]; set: (l: Variant[]) =>
   };
   return (
     <details className="vr" open={list.length > 0}>
-      <summary>{title} <span className="muted">{list.length}</span></summary>
-      {list.map((x, i) => (
+      <summary>{title} <span className="muted">{where ? names.length : list.length}</span></summary>
+      {where && (
+        <div className="row tight vr-pick">
+          <select value={cur} onChange={(e) => setPick(e.target.value)}>
+            {names.map((n) => <option key={n}>{n}</option>)}
+          </select>
+          <button className="small" onClick={addOutfit}>+ New outfit</button>
+          {cur && <button className="small" onClick={renameOutfit}>Rename</button>}
+          {cur && <button className="small ghost" onClick={dropOutfit}>Delete</button>}
+        </div>
+      )}
+      {list.map((x, i) => where && x.name !== cur ? null : (
         <div key={i} className="vr-item" tabIndex={0} onPaste={(e) => upload(i, [...e.clipboardData.files][0])}>
           <div className="vr-pic">
             {x.img ? <a href={x.img} target="_blank"><img src={x.img} /></a> : <span className="muted">no picture</span>}
@@ -912,7 +941,7 @@ const Variants: React.FC<{title: string; list: Variant[]; set: (l: Variant[]) =>
           </div>
           <div className="vr-body">
             <div className="row tight">
-              <input className="flabel" value={x.name} onChange={(e) => edit(i, {name: e.target.value})} />
+              {!where && <input className="flabel" value={x.name} onChange={(e) => edit(i, {name: e.target.value})} />}
               {where && (
                 <select value={x.where || 'Any'} onChange={(e) => edit(i, {where: e.target.value})}>
                   {['Any', 'Indoors', 'Outdoors'].map((w) => <option key={w}>{w}</option>)}
@@ -927,7 +956,13 @@ const Variants: React.FC<{title: string; list: Variant[]; set: (l: Variant[]) =>
           </div>
         </div>
       ))}
-      <button className="small" onClick={() => set([...list, {name: `New ${title.toLowerCase().replace(/s$/, '')}`, value: '', parts: 'all', img: '', ...(where ? {where: 'Any'} : {})}])}>+ Add</button>
+      {where ? (
+        cur && ['Indoors', 'Outdoors', 'Any'].filter((w) => !list.some((x) => x.name === cur && (x.where || 'Any') === w)).map((w) => (
+          <button key={w} className="small" onClick={() => set([...list, {name: cur, where: w, value: '', parts: 'all', img: ''}])}>+ {w} version</button>
+        ))
+      ) : (
+        <button className="small" onClick={() => set([...list, {name: `New ${title.toLowerCase().replace(/s$/, '')}`, value: '', parts: 'all', img: ''}])}>+ Add</button>
+      )}
     </details>
   );
 };
@@ -1111,6 +1146,7 @@ const Characters: React.FC<{proj: Project; say: (m: string) => void; kind?: keyo
 // ---------- prompt maker: tick what you want, get a prompt that asks ChatGPT or DeepSeek to write the image prompt ----------
 type Pick = {on: boolean; outfit: string; age: string; conds: string[]; fields: string[]};
 const DEFAULT_FIELDS = ['Appearance', 'Face', 'Height', 'Weight / build', 'Colours', 'Signature items', 'Do not draw'];
+const fitKey = (o?: Variant) => (o ? `${o.name}|${o.where || 'Any'}` : '');
 const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
   const [templates, setTemplates] = useState<any[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -1144,7 +1180,7 @@ const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
   // default look of a character for this part
   const auto = (c: Char): Pick => ({
     on: false,
-    outfit: (c.outfits || []).find((o) => inParts(o.parts, part))?.name || '',
+    outfit: fitKey((c.outfits || []).find((o) => inParts(o.parts, part))),
     age: (c.ages || []).find((o) => inParts(o.parts, part))?.name || '',
     conds: [],
     fields: c.fields.filter((f) => DEFAULT_FIELDS.includes(f.label) && f.value.trim()).map((f) => f.label),
@@ -1178,11 +1214,11 @@ const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
   const refs: {who: string; url: string}[] = [];
   const charBlock = (c: Char) => {
     const k = picks[c.name];
-    const fit = (c.outfits || []).find((o) => o.name === k.outfit);
+    const fit = (c.outfits || []).find((o) => fitKey(o) === k.outfit);
     const age = (c.ages || []).find((o) => o.name === k.age);
     const lines = [`${c.name.toUpperCase()}`, ...c.fields.filter((f) => k.fields.includes(f.label) && f.value.trim()).map((f) => `- ${f.label}: ${f.value.trim()}`)];
     if (age) lines.push(`- Age: ${age.value}`);
-    if (fit?.value) lines.push(`- Clothing (${fit.name}): ${fit.value}`);
+    if (fit?.value) lines.push(`- Clothing (${fit.name}${fit.where && fit.where !== 'Any' ? `, ${fit.where.toLowerCase()}` : ''}): ${fit.value}`);
     for (const x of c.conditions || []) if (k.conds.includes(x.name)) lines.push(`- Condition: ${x.value}`);
     if (fit?.img) refs.push({who: `${c.name} - ${fit.name}`, url: fit.img});
     return lines.join('\n');
@@ -1229,8 +1265,8 @@ const PromptMaker: React.FC<{say: (m: string) => void}> = ({say}) => {
                       {!!c.outfits?.length && (
                         <details open><summary>Clothing</summary>
                           {c.outfits.map((o) => (
-                            <label key={o.name} className={inParts(o.parts, part) ? '' : 'muted'}>
-                              <input type="radio" name={`o-${c.name}`} checked={k.outfit === o.name} onChange={() => upd(c.name, {outfit: o.name})} /> {o.name} <span className="muted">{o.where} · parts {o.parts}</span>
+                            <label key={fitKey(o)} className={inParts(o.parts, part) ? '' : 'muted'}>
+                              <input type="radio" name={`o-${c.name}`} checked={k.outfit === fitKey(o)} onChange={() => upd(c.name, {outfit: fitKey(o)})} /> {o.name} <span className="muted">{o.where} · parts {o.parts}</span>
                             </label>
                           ))}
                         </details>
